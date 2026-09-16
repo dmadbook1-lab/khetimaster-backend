@@ -10,6 +10,12 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    phoneNumber: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     fullName: {
       type: String,
       default: '',
@@ -28,6 +34,12 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    taluka: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     village: {
       type: String,
       default: '',
@@ -41,7 +53,7 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 const User = mongoose.model('User', userSchema);

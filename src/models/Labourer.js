@@ -14,7 +14,6 @@ const labourerSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      
     },
 
     phoneNumber: {
@@ -106,6 +105,12 @@ const labourerSchema = new mongoose.Schema(
       trim: true,
     },
 
+    taluka: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     village: {
       type: String,
       default: '',
@@ -154,7 +159,7 @@ const labourerSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 labourerSchema.index({
@@ -172,6 +177,7 @@ labourerSchema.index({
 labourerSchema.index({
   state: 1,
   district: 1,
+  taluka: 1,
 });
 
 const Labourer = mongoose.model('Labourer', labourerSchema);

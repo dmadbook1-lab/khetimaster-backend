@@ -12,6 +12,9 @@ import labourBookingRoutes from './routes/labourBookingRoutes.js';
 import machineryRoutes from './routes/machineryRoutes.js';
 import machineryBookingRoutes from './routes/machineryBookingRoutes.js';
 
+import doctorRoutes from './routes/doctorRoutes.js';
+import doctorConsultationRoutes from './routes/doctorConsultationRoutes.js';
+
 const app = express();
 
 app.use(cors());
@@ -32,6 +35,13 @@ app.use(
 app.use(
   '/api/machinery-bookings',
   machineryBookingRoutes
+);
+
+app.use('/api/doctors', doctorRoutes);
+
+app.use(
+  '/api/doctor-consultations',
+  doctorConsultationRoutes
 );
 
 app.get('/api/health', (req, res) =>
