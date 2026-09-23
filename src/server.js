@@ -17,6 +17,7 @@ import doctorRoutes from './routes/doctorRoutes.js';
 import doctorConsultationRoutes from './routes/doctorConsultationRoutes.js';
 
 import articleRoutes from './routes/articleRoutes.js';
+import mandiRoutes from './routes/mandiRoutes.js';
 
 import {
   startArticleRefreshJob,
@@ -94,6 +95,10 @@ app.use(
   '/api/articles',
   articleRoutes
 );
+
+
+app.use('/api/mandi', mandiRoutes);
+
 
 /*
  * Health Check
