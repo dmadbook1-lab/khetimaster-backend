@@ -1,0 +1,8 @@
+# Local development only: point the container at MongoDB running on the host machine.
+# Compose loads this file automatically. On the server run: docker compose -f docker-compose.yml up -d
+services:
+  api:
+    environment:
+      MONGO_URI: mongodb://host.docker.internal:27017/khetimaster
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

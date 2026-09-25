@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    image: khetimaster-backend:latest
+    container_name: khetimaster-api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+
+  # Optional local MongoDB. Start with: docker compose --profile local-db up -d
+  # and set MONGO_URI=mongodb://mongo:27017/khetimaster in .env
+  mongo:
+    image: mongo:7
+    container_name: khetimaster-mongo
+    restart: unless-stopped
+    profiles: ["local-db"]
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
