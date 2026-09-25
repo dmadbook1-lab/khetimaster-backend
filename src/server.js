@@ -19,6 +19,10 @@ import doctorConsultationRoutes from './routes/doctorConsultationRoutes.js';
 import articleRoutes from './routes/articleRoutes.js';
 import mandiRoutes from './routes/mandiRoutes.js';
 
+import nurseryRoutes from './routes/nurseryRoutes.js';
+import nurseryCartRoutes from './routes/nurseryCartRoutes.js';
+import nurseryOrderRoutes from './routes/nurseryOrderRoutes.js';
+
 import {
   startArticleRefreshJob,
 } from './jobs/articleRefreshJob.js';
@@ -98,6 +102,12 @@ app.use(
 
 
 app.use('/api/mandi', mandiRoutes);
+
+app.use('/api/nursery', nurseryRoutes);
+
+app.use('/api/nursery/cart', nurseryCartRoutes);
+
+app.use('/api/nursery/orders', nurseryOrderRoutes);
 
 
 /*
