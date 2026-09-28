@@ -22,6 +22,7 @@ import mandiRoutes from './routes/mandiRoutes.js';
 import nurseryRoutes from './routes/nurseryRoutes.js';
 import nurseryCartRoutes from './routes/nurseryCartRoutes.js';
 import nurseryOrderRoutes from './routes/nurseryOrderRoutes.js';
+import farmFieldRoutes from './routes/farmField.routes.js';
 
 import { startArticleRefreshJob } from './jobs/articleRefreshJob.js';
 
@@ -79,6 +80,8 @@ app.use('/api/nursery', nurseryRoutes);
 app.use('/api/nursery/cart', nurseryCartRoutes);
 
 app.use('/api/nursery/orders', nurseryOrderRoutes);
+
+app.use('/api/field', farmFieldRoutes);
 
 /*
  * Health Check
