@@ -9,12 +9,14 @@ const farmFieldSchema = new mongoose.Schema(
             type: Number,
             required: true,
           },
+
           lng: {
             type: Number,
             required: true,
           },
         },
       ],
+
       required: true,
     },
 
@@ -30,9 +32,30 @@ const farmFieldSchema = new mongoose.Schema(
       trim: true,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | CROP
+    |--------------------------------------------------------------------------
+    */
+
     cropName: {
       type: String,
       required: true,
+      trim: true,
+    },
+
+    /*
+    |--------------------------------------------------------------------------
+    | CROP IMAGE
+    |--------------------------------------------------------------------------
+    |
+    | URL returned by CropGen crop API.
+    |
+    */
+
+    cropImage: {
+      type: String,
+      default: '',
       trim: true,
     },
 
@@ -45,6 +68,7 @@ const farmFieldSchema = new mongoose.Schema(
     sowingDate: {
       type: String,
       required: true,
+      trim: true,
     },
 
     acre: {
@@ -60,28 +84,54 @@ const farmFieldSchema = new mongoose.Schema(
 
     typeOfFarming: {
       type: String,
-      enum: ['Organic', 'Inorganic', 'Integrated'],
+
+      enum: [
+        'Organic',
+        'Inorganic',
+        'Integrated',
+      ],
+
       required: true,
     },
 
-    /**
-     * True when there is currently no standing crop.
-     * sowingDate stores the expected sowing date.
-     */
     isBarrenLand: {
       type: Boolean,
       default: false,
     },
   },
+
   {
     timestamps: true,
   },
 );
 
-farmFieldSchema.index({ createdAt: 1 });
-farmFieldSchema.index({ user: 1 });
-farmFieldSchema.index({ cropName: 1 });
-farmFieldSchema.index({ typeOfFarming: 1 });
-farmFieldSchema.index({ typeOfIrrigation: 1 });
+/*
+|--------------------------------------------------------------------------
+| INDEXES
+|--------------------------------------------------------------------------
+*/
 
-export default mongoose.model('FarmField', farmFieldSchema);
+farmFieldSchema.index({
+  createdAt: 1,
+});
+
+farmFieldSchema.index({
+  user: 1,
+});
+
+farmFieldSchema.index({
+  cropName: 1,
+});
+
+farmFieldSchema.index({
+  typeOfFarming: 1,
+});
+
+farmFieldSchema.index({
+  typeOfIrrigation: 1,
+});
+
+export default mongoose.model(
+  'FarmField',
+  farmFieldSchema,
+);

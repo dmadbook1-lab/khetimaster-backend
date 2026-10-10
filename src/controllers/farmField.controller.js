@@ -5,7 +5,7 @@ import User from '../models/User.js';
 
 /*
 |--------------------------------------------------------------------------
-| HELPERS
+| CONSTANTS
 |--------------------------------------------------------------------------
 */
 
@@ -17,7 +17,7 @@ const ALLOWED_FARMING_TYPES = [
 
 /*
 |--------------------------------------------------------------------------
-| VALIDATE USER ID
+| HELPERS
 |--------------------------------------------------------------------------
 */
 
@@ -27,11 +27,11 @@ const isValidUserId = userId => {
   );
 };
 
-/*
-|--------------------------------------------------------------------------
-| VALIDATE FIELD COORDINATES
-|--------------------------------------------------------------------------
-*/
+const isValidFieldId = fieldId => {
+  return mongoose.Types.ObjectId.isValid(
+    fieldId,
+  );
+};
 
 const validateCoordinates = latlng => {
   if (
@@ -56,17 +56,21 @@ const validateCoordinates = latlng => {
   });
 };
 
-/*
-|--------------------------------------------------------------------------
-| NORMALIZE COORDINATES
-|--------------------------------------------------------------------------
-*/
-
 const normalizeCoordinates = latlng => {
   return latlng.map(point => ({
     lat: Number(point.lat),
     lng: Number(point.lng),
   }));
+};
+
+const normalizeCropImage = cropImage => {
+  if (
+    typeof cropImage !== 'string'
+  ) {
+    return '';
+  }
+
+  return cropImage.trim();
 };
 
 /*
@@ -83,12 +87,12 @@ export const addField = async (
   res,
 ) => {
   try {
-    const {userId} =
-      req.params;
+    const {userId} = req.params;
 
     const {
       latlng,
       cropName,
+      cropImage,
       variety,
       sowingDate,
       typeOfIrrigation,
@@ -100,6 +104,44 @@ export const addField = async (
 
     /*
     |--------------------------------------------------------------------------
+    | DEBUG
+    |--------------------------------------------------------------------------
+    */
+
+    console.log(
+      '================================================',
+    );
+
+    console.log(
+      'ADD FARM FIELD',
+    );
+
+    console.log(
+      'User ID:',
+      userId,
+    );
+
+    console.log(
+      'Crop Name:',
+      cropName,
+    );
+
+    console.log(
+      'Crop Image:',
+      cropImage,
+    );
+
+    console.log(
+      'Crop Image Type:',
+      typeof cropImage,
+    );
+
+    console.log(
+      '================================================',
+    );
+
+    /*
+    |--------------------------------------------------------------------------
     | USER ID
     |--------------------------------------------------------------------------
     */
@@ -107,8 +149,7 @@ export const addField = async (
     if (!isValidUserId(userId)) {
       return res.status(400).json({
         success: false,
-        message:
-          'Invalid User ID',
+        message: 'Invalid User ID',
       });
     }
 
@@ -203,9 +244,7 @@ export const addField = async (
     */
 
     const user =
-      await User.findById(
-        userId,
-      );
+      await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -217,7 +256,39 @@ export const addField = async (
 
     /*
     |--------------------------------------------------------------------------
-    | CREATE
+    | NORMALIZE CROP IMAGE
+    |--------------------------------------------------------------------------
+    */
+
+    const normalizedCropImage =
+      normalizeCropImage(
+        cropImage,
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | CROP IMAGE VALIDATION
+    |--------------------------------------------------------------------------
+    |
+    | A selected crop should have an image.
+    | Barren land can remain without one.
+    |
+    */
+
+    if (
+      !Boolean(isBarrenLand) &&
+      !normalizedCropImage
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'cropImage is required when a crop is selected',
+      });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE FARM
     |--------------------------------------------------------------------------
     */
 
@@ -230,23 +301,36 @@ export const addField = async (
 
         user: userId,
 
+        fieldName:
+          String(
+            farmName,
+          ).trim(),
+
         cropName:
-          cropName.trim(),
+          String(
+            cropName,
+          ).trim(),
+
+        cropImage:
+          normalizedCropImage,
 
         variety:
-          variety.trim(),
+          String(
+            variety,
+          ).trim(),
 
         sowingDate:
-          sowingDate.trim(),
-
-        typeOfIrrigation:
-          typeOfIrrigation.trim(),
-
-        fieldName:
-          farmName.trim(),
+          String(
+            sowingDate,
+          ).trim(),
 
         acre:
           numericAcre,
+
+        typeOfIrrigation:
+          String(
+            typeOfIrrigation,
+          ).trim(),
 
         typeOfFarming,
 
@@ -264,6 +348,26 @@ export const addField = async (
 
     const savedFarmField =
       await newFarmField.save();
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE DEBUG
+    |--------------------------------------------------------------------------
+    */
+
+    console.log(
+      'Farm saved successfully',
+    );
+
+    console.log(
+      'Saved crop:',
+      savedFarmField.cropName,
+    );
+
+    console.log(
+      'Saved crop image:',
+      savedFarmField.cropImage,
+    );
 
     /*
     |--------------------------------------------------------------------------
@@ -311,7 +415,7 @@ export const addField = async (
 
 /*
 |--------------------------------------------------------------------------
-| GET ALL FARMS BY USER
+| GET ALL USER FARMS
 |--------------------------------------------------------------------------
 |
 | GET /api/field/user/:userId
@@ -327,12 +431,6 @@ export const getUserFields =
       const {userId} =
         req.params;
 
-      /*
-      |--------------------------------------------------------------------------
-      | USER ID
-      |--------------------------------------------------------------------------
-      */
-
       if (
         !isValidUserId(
           userId,
@@ -344,12 +442,6 @@ export const getUserFields =
             'Invalid User ID',
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | USER EXISTS
-      |--------------------------------------------------------------------------
-      */
 
       const user =
         await User.findById(
@@ -364,12 +456,6 @@ export const getUserFields =
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | GET FARMS
-      |--------------------------------------------------------------------------
-      */
-
       const farms =
         await FarmField.find({
           user: userId,
@@ -378,12 +464,6 @@ export const getUserFields =
             createdAt: -1,
           })
           .lean();
-
-      /*
-      |--------------------------------------------------------------------------
-      | RESPONSE
-      |--------------------------------------------------------------------------
-      */
 
       return res.status(200).json({
         success: true,
@@ -427,14 +507,8 @@ export const getField =
       const {fieldId} =
         req.params;
 
-      /*
-      |--------------------------------------------------------------------------
-      | FIELD ID
-      |--------------------------------------------------------------------------
-      */
-
       if (
-        !mongoose.Types.ObjectId.isValid(
+        !isValidFieldId(
           fieldId,
         )
       ) {
@@ -444,12 +518,6 @@ export const getField =
             'Invalid farm field ID',
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | FIND
-      |--------------------------------------------------------------------------
-      */
 
       const farmField =
         await FarmField.findById(
@@ -463,12 +531,6 @@ export const getField =
             'Farm field not found',
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | RESPONSE
-      |--------------------------------------------------------------------------
-      */
 
       return res.status(200).json({
         success: true,
@@ -512,6 +574,7 @@ export const updateField =
       const {
         latlng,
         cropName,
+        cropImage,
         variety,
         sowingDate,
         typeOfIrrigation,
@@ -528,7 +591,7 @@ export const updateField =
       */
 
       if (
-        !mongoose.Types.ObjectId.isValid(
+        !isValidFieldId(
           fieldId,
         )
       ) {
@@ -560,7 +623,7 @@ export const updateField =
 
       /*
       |--------------------------------------------------------------------------
-      | UPDATE ONLY PROVIDED FIELDS
+      | COORDINATES
       |--------------------------------------------------------------------------
       */
 
@@ -585,15 +648,21 @@ export const updateField =
           );
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | CROP NAME
+      |--------------------------------------------------------------------------
+      */
+
       if (
-        cropName !==
-        undefined
+        cropName !== undefined
       ) {
-        if (
-          !String(
+        const value =
+          String(
             cropName,
-          ).trim()
-        ) {
+          ).trim();
+
+        if (!value) {
           return res.status(400).json({
             success: false,
             message:
@@ -602,20 +671,39 @@ export const updateField =
         }
 
         farmField.cropName =
-          String(
-            cropName,
-          ).trim();
+          value;
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | CROP IMAGE
+      |--------------------------------------------------------------------------
+      */
+
       if (
-        variety !==
-        undefined
+        cropImage !== undefined
       ) {
-        if (
-          !String(
+        farmField.cropImage =
+          normalizeCropImage(
+            cropImage,
+          );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | VARIETY
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        variety !== undefined
+      ) {
+        const value =
+          String(
             variety,
-          ).trim()
-        ) {
+          ).trim();
+
+        if (!value) {
           return res.status(400).json({
             success: false,
             message:
@@ -624,20 +712,24 @@ export const updateField =
         }
 
         farmField.variety =
-          String(
-            variety,
-          ).trim();
+          value;
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | SOWING DATE
+      |--------------------------------------------------------------------------
+      */
+
       if (
-        sowingDate !==
-        undefined
+        sowingDate !== undefined
       ) {
-        if (
-          !String(
+        const value =
+          String(
             sowingDate,
-          ).trim()
-        ) {
+          ).trim();
+
+        if (!value) {
           return res.status(400).json({
             success: false,
             message:
@@ -646,20 +738,25 @@ export const updateField =
         }
 
         farmField.sowingDate =
-          String(
-            sowingDate,
-          ).trim();
+          value;
       }
+
+      /*
+      |--------------------------------------------------------------------------
+      | IRRIGATION
+      |--------------------------------------------------------------------------
+      */
 
       if (
         typeOfIrrigation !==
         undefined
       ) {
-        if (
-          !String(
+        const value =
+          String(
             typeOfIrrigation,
-          ).trim()
-        ) {
+          ).trim();
+
+        if (!value) {
           return res.status(400).json({
             success: false,
             message:
@@ -668,20 +765,24 @@ export const updateField =
         }
 
         farmField.typeOfIrrigation =
-          String(
-            typeOfIrrigation,
-          ).trim();
+          value;
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | FARM NAME
+      |--------------------------------------------------------------------------
+      */
+
       if (
-        farmName !==
-        undefined
+        farmName !== undefined
       ) {
-        if (
-          !String(
+        const value =
+          String(
             farmName,
-          ).trim()
-        ) {
+          ).trim();
+
+        if (!value) {
           return res.status(400).json({
             success: false,
             message:
@@ -690,14 +791,17 @@ export const updateField =
         }
 
         farmField.fieldName =
-          String(
-            farmName,
-          ).trim();
+          value;
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | AREA
+      |--------------------------------------------------------------------------
+      */
+
       if (
-        acre !==
-        undefined
+        acre !== undefined
       ) {
         const numericAcre =
           Number(acre);
@@ -719,6 +823,12 @@ export const updateField =
           numericAcre;
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | FARMING TYPE
+      |--------------------------------------------------------------------------
+      */
+
       if (
         typeOfFarming !==
         undefined
@@ -739,6 +849,12 @@ export const updateField =
           typeOfFarming;
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | BARREN LAND
+      |--------------------------------------------------------------------------
+      */
+
       if (
         isBarrenLand !==
         undefined
@@ -758,11 +874,10 @@ export const updateField =
       const updatedFarm =
         await farmField.save();
 
-      /*
-      |--------------------------------------------------------------------------
-      | RESPONSE
-      |--------------------------------------------------------------------------
-      */
+      console.log(
+        'Updated crop image:',
+        updatedFarm.cropImage,
+      );
 
       return res.status(200).json({
         success: true,
@@ -820,14 +935,8 @@ export const deleteField =
       const {fieldId} =
         req.params;
 
-      /*
-      |--------------------------------------------------------------------------
-      | FIELD ID
-      |--------------------------------------------------------------------------
-      */
-
       if (
-        !mongoose.Types.ObjectId.isValid(
+        !isValidFieldId(
           fieldId,
         )
       ) {
@@ -837,12 +946,6 @@ export const deleteField =
             'Invalid farm field ID',
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | DELETE
-      |--------------------------------------------------------------------------
-      */
 
       const deletedFarm =
         await FarmField.findByIdAndDelete(
@@ -856,12 +959,6 @@ export const deleteField =
             'Farm field not found',
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | RESPONSE
-      |--------------------------------------------------------------------------
-      */
 
       return res.status(200).json({
         success: true,
