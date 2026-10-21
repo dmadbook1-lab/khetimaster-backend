@@ -24,6 +24,9 @@ import nurseryCartRoutes from './routes/nurseryCartRoutes.js';
 import nurseryOrderRoutes from './routes/nurseryOrderRoutes.js';
 import farmFieldRoutes from './routes/farmField.routes.js';
 
+import marketRoutes from './routes/marketRoutes.js';
+import marketDealRoutes from './routes/marketDealRoutes.js';
+
 import { startArticleRefreshJob } from './jobs/articleRefreshJob.js';
 
 import { refreshArticles } from './services/articleService.js';
@@ -82,6 +85,13 @@ app.use('/api/nursery/cart', nurseryCartRoutes);
 app.use('/api/nursery/orders', nurseryOrderRoutes);
 
 app.use('/api/field', farmFieldRoutes);
+
+/*
+ * Marketplace (buy / sell produce and equipment)
+ */
+app.use('/api/market/deals', marketDealRoutes);
+
+app.use('/api/market', marketRoutes);
 
 /*
  * Health Check
