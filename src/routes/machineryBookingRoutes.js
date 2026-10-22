@@ -9,6 +9,7 @@ import {
   acceptMachineryBooking,
   rejectMachineryBooking,
   completeMachineryBooking,
+  reviewMachineryBooking,
 } from '../controllers/machineryBookingController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -110,6 +111,15 @@ router.patch(
   '/:id/complete',
   authMiddleware,
   completeMachineryBooking,
+);
+
+/*
+ * POST /api/machinery-bookings/:id/review
+ */
+router.post(
+  '/:id/review',
+  authMiddleware,
+  reviewMachineryBooking,
 );
 
 export default router;

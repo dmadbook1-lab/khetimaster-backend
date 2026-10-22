@@ -8,6 +8,7 @@ import {
   updateMyLabourerProfile,
   deactivateMyLabourerProfile,
   activateMyLabourerProfile,
+  getLabourMeta,
 } from '../controllers/labourerController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -15,6 +16,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.get('/', authMiddleware, getAllLabourers);
+router.get('/meta', authMiddleware, getLabourMeta);
 router.post('/', authMiddleware, createLabourer);
 router.get('/me', authMiddleware, getMyLabourerProfile);
 router.put('/me', authMiddleware, updateMyLabourerProfile);

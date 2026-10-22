@@ -9,6 +9,7 @@ import {
   rejectBooking,
   completeBooking,
   getLabourerRequests,
+  reviewBooking,
 } from '../controllers/labourBookingController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -23,5 +24,6 @@ router.patch('/:id/cancel', authMiddleware, cancelBooking);
 router.patch('/:id/accept', authMiddleware, acceptBooking);
 router.patch('/:id/reject', authMiddleware, rejectBooking);
 router.patch('/:id/complete', authMiddleware, completeBooking);
+router.post('/:id/review', authMiddleware, reviewBooking);
 
 export default router;

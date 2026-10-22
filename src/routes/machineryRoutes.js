@@ -8,6 +8,7 @@ import {
   updateMyMachinery,
   deactivateMachinery,
   activateMachinery,
+  getMachineryMeta,
 } from '../controllers/machineryController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -37,6 +38,17 @@ router.get(
 | OWNER
 |--------------------------------------------------------------------------
 */
+
+/*
+ * GET /api/machinery/meta
+ *
+ * Categories, implements, fuel / drive types, pricing units
+ */
+router.get(
+  '/meta',
+  authMiddleware,
+  getMachineryMeta,
+);
 
 /*
  * GET /api/machinery/my-machinery
@@ -89,7 +101,7 @@ router.patch(
 |--------------------------------------------------------------------------
 |
 | IMPORTANT:
-| This must come AFTER /my-machinery.
+| This must come AFTER /meta and /my-machinery.
 |
 |--------------------------------------------------------------------------
 */
