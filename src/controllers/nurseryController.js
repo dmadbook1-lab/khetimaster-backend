@@ -1,66 +1,171 @@
 import mongoose from 'mongoose';
 
 import Plant from '../models/Plant.js';
+import NurseryOrder from '../models/NurseryOrder.js';
 import User from '../models/User.js';
+
+import {
+  PLANT_CATEGORIES,
+  ORDER_FLOW,
+  FREE_DELIVERY_THRESHOLD,
+  DELIVERY_FEE,
+  MAX_IMAGES,
+} from '../data/nurseryOptions.js';
 
 /*
 |--------------------------------------------------------------------------
-| HELPER — GET AUTHENTICATED USER ID
+| HELPERS
 |--------------------------------------------------------------------------
-|
-| Different auth middleware implementations may store the authenticated
-| user's ID as:
-|
-| req.user._id
-| req.user.id
-| req.user.userId
-| req.user.sub
-|
-| This helper handles all common cases.
-|
 */
 
-const getAuthenticatedUserId = req => {
-  if (!req.user) {
-    return null;
-  }
+const getAuthenticatedUserId = (req) => {
+  const userId = req.user?.userId;
+  return userId && mongoose.Types.ObjectId.isValid(userId) ? userId : null;
+};
 
-  return (
-    req.user._id ||
-    req.user.id ||
-    req.user.userId ||
-    req.user.sub ||
-    null
-  );
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const exactInsensitive = (value) => new RegExp(`^${escapeRegex(value.trim())}$`, 'i');
+
+const trimString = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const parseNumber = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  return Number(value);
 };
 
 /*
+ * Validates plant fields from the request body.
+ *
+ * On create the required fields must be present. On update only the
+ * fields that were sent are validated and returned.
+ *
+ * Returns { fields } or { error }.
+ */
+const buildPlantFields = (body, { isCreate }) => {
+  const fields = {};
+  const has = (key) => body[key] !== undefined;
+
+  for (const [key, label] of [
+    ['name', 'Plant name'],
+    ['category', 'Plant category'],
+  ]) {
+    if (isCreate || has(key)) {
+      const value = trimString(body[key]);
+
+      if (!value) return { error: `${label} is required` };
+      if (value.length > 100) return { error: `${label} must be at most 100 characters` };
+
+      fields[key] = value;
+    }
+  }
+
+  if (has('description')) {
+    const description = trimString(body.description);
+
+    if (description.length > 1000) {
+      return { error: 'Description must be at most 1000 characters' };
+    }
+
+    fields.description = description;
+  }
+
+  if (has('images')) {
+    if (!Array.isArray(body.images) || body.images.some((image) => typeof image !== 'string')) {
+      return { error: 'Images must be a list of URLs' };
+    }
+
+    if (body.images.length > MAX_IMAGES) {
+      return { error: `At most ${MAX_IMAGES} images are allowed` };
+    }
+
+    fields.images = body.images.map((image) => image.trim()).filter(Boolean);
+  }
+
+  if (isCreate || has('price')) {
+    const price = parseNumber(body.price);
+
+    if (price === null || !Number.isFinite(price) || price <= 0) {
+      return { error: 'A valid plant price is required' };
+    }
+
+    fields.price = Math.round(price * 100) / 100;
+  }
+
+  if (isCreate || has('quantity')) {
+    const quantity = parseNumber(body.quantity);
+
+    if (quantity === null || !Number.isInteger(quantity) || quantity < 0) {
+      return { error: 'Quantity must be a valid whole number' };
+    }
+
+    if (isCreate && quantity === 0) {
+      return { error: 'Quantity must be at least 1' };
+    }
+
+    fields.quantity = quantity;
+  }
+
+  for (const key of ['state', 'district']) {
+    if (has(key)) fields[`location.${key}`] = trimString(body[key]);
+  }
+
+  if (has('isActive')) fields.isActive = Boolean(body.isActive);
+
+  return { fields };
+};
+
+/*
+ * Recent buyer reviews of a plant.
+ */
+const getPlantReviews = (plantId, limit = 10) =>
+  NurseryOrder.aggregate([
+    { $match: { 'items.plant': new mongoose.Types.ObjectId(String(plantId)) } },
+    { $unwind: '$items' },
+    {
+      $match: {
+        'items.plant': new mongoose.Types.ObjectId(String(plantId)),
+        'items.review.rating': { $ne: null },
+      },
+    },
+    { $sort: { 'items.review.createdAt': -1 } },
+    { $limit: limit },
+    {
+      $project: {
+        _id: 0,
+        rating: '$items.review.rating',
+        comment: '$items.review.comment',
+        createdAt: '$items.review.createdAt',
+        buyerName: '$deliveryAddress.fullName',
+      },
+    },
+  ]);
+
+/*
 |--------------------------------------------------------------------------
-| HELPER — VALIDATE AUTHENTICATED USER
+| GET NURSERY META
+|--------------------------------------------------------------------------
+| GET /api/nursery/meta
+|
+| Suggested categories, order statuses and delivery rules.
 |--------------------------------------------------------------------------
 */
 
-const requireAuthenticatedUser = req => {
-  const userId = getAuthenticatedUserId(req);
-
-  if (!userId) {
-    return {
-      valid: false,
-      userId: null,
-    };
-  }
-
-  if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return {
-      valid: false,
-      userId: null,
-    };
-  }
-
-  return {
-    valid: true,
-    userId,
-  };
+export const getNurseryMeta = async (req, res) => {
+  return res.status(200).json({
+    success: true,
+    data: {
+      categories: PLANT_CATEGORIES,
+      orderStatuses: [...ORDER_FLOW, 'CANCELLED'],
+      delivery: {
+        fee: DELIVERY_FEE,
+        freeAbove: FREE_DELIVERY_THRESHOLD,
+      },
+      paymentMethods: ['COD'],
+    },
+  });
 };
 
 /*
@@ -72,131 +177,73 @@ const requireAuthenticatedUser = req => {
 | Optional query parameters:
 |
 | ?category=Fruit Plants
-| ?search=mango
+| ?search=mango             (matches part of name, description, category)
 | ?state=Maharashtra
 | ?district=Pune
-| ?minPrice=20
-| ?maxPrice=500
-| ?page=1
-| ?limit=20
+| ?minPrice=20&maxPrice=500
+| ?seller=<userId>
+| ?sort=newest (default) | price_asc | price_desc | rating | popular
+| ?page=1&limit=20
 |
 */
 
 export const getPlants = async (req, res) => {
   try {
-    const {
-      category,
-      search,
-      state,
-      district,
-      minPrice,
-      maxPrice,
-      page = 1,
-      limit = 20,
-    } = req.query;
+    const { category, search, state, district, minPrice, maxPrice, seller, sort } = req.query;
 
     const filter = {
       isActive: true,
-      quantity: {
-        $gt: 0,
-      },
+      quantity: { $gt: 0 },
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | Category
-    |--------------------------------------------------------------------------
-    */
-
-    if (category?.trim()) {
-      filter.category = category.trim();
+    if (category && String(category).trim()) {
+      filter.category = exactInsensitive(String(category));
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | State
-    |--------------------------------------------------------------------------
-    */
+    if (state && String(state).trim()) filter['location.state'] = exactInsensitive(String(state));
 
-    if (state?.trim()) {
-      filter['location.state'] = state.trim();
+    if (district && String(district).trim()) {
+      filter['location.district'] = exactInsensitive(String(district));
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | District
-    |--------------------------------------------------------------------------
-    */
+    if (search && String(search).trim()) {
+      const pattern = new RegExp(escapeRegex(String(search).trim()), 'i');
 
-    if (district?.trim()) {
-      filter['location.district'] = district.trim();
+      filter.$or = [{ name: pattern }, { description: pattern }, { category: pattern }];
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Search
-    |--------------------------------------------------------------------------
-    */
+    const min = parseNumber(minPrice);
+    const max = parseNumber(maxPrice);
 
-    if (search?.trim()) {
-      filter.$text = {
-        $search: search.trim(),
-      };
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Price range
-    |--------------------------------------------------------------------------
-    */
-
-    if (minPrice !== undefined || maxPrice !== undefined) {
+    if (Number.isFinite(min) || Number.isFinite(max)) {
       filter.price = {};
-
-      if (minPrice !== undefined && minPrice !== '') {
-        const minimumPrice = Number(minPrice);
-
-        if (!Number.isNaN(minimumPrice)) {
-          filter.price.$gte = minimumPrice;
-        }
-      }
-
-      if (maxPrice !== undefined && maxPrice !== '') {
-        const maximumPrice = Number(maxPrice);
-
-        if (!Number.isNaN(maximumPrice)) {
-          filter.price.$lte = maximumPrice;
-        }
-      }
+      if (Number.isFinite(min)) filter.price.$gte = min;
+      if (Number.isFinite(max)) filter.price.$lte = max;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Pagination
-    |--------------------------------------------------------------------------
-    */
+    if (seller) {
+      if (!isValidId(seller)) {
+        return res.status(400).json({ success: false, message: 'Invalid seller ID' });
+      }
 
-    const currentPage = Math.max(Number(page) || 1, 1);
+      filter['seller.userId'] = seller;
+    }
 
-    const itemsPerPage = Math.min(
-      Math.max(Number(limit) || 20, 1),
-      50,
-    );
+    const sortOptions = {
+      newest: { createdAt: -1 },
+      price_asc: { price: 1, createdAt: -1 },
+      price_desc: { price: -1, createdAt: -1 },
+      rating: { rating: -1, totalReviews: -1 },
+      popular: { totalSold: -1, createdAt: -1 },
+    };
 
-    const skip = (currentPage - 1) * itemsPerPage;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Fetch plants
-    |--------------------------------------------------------------------------
-    */
+    const currentPage = Math.max(Number(req.query.page) || 1, 1);
+    const itemsPerPage = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
 
     const [plants, total] = await Promise.all([
       Plant.find(filter)
-        .sort({
-          createdAt: -1,
-        })
-        .skip(skip)
+        .sort(sortOptions[sort] || sortOptions.newest)
+        .skip((currentPage - 1) * itemsPerPage)
         .limit(itemsPerPage)
         .lean(),
 
@@ -205,17 +252,12 @@ export const getPlants = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-
       data: plants,
-
       pagination: {
         page: currentPage,
         limit: itemsPerPage,
         total,
-        totalPages:
-          total === 0
-            ? 0
-            : Math.ceil(total / itemsPerPage),
+        totalPages: Math.ceil(total / itemsPerPage),
       },
     });
   } catch (error) {
@@ -233,24 +275,23 @@ export const getPlants = async (req, res) => {
 | GET SINGLE PLANT
 |--------------------------------------------------------------------------
 | GET /api/nursery/plants/:id
+|
+| Includes recent buyer reviews.
 |--------------------------------------------------------------------------
 */
 
 export const getPlantById = async (req, res) => {
   try {
-    const {id} = req.params;
+    const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidId(id)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid plant ID',
       });
     }
 
-    const plant = await Plant.findOne({
-      _id: id,
-      isActive: true,
-    }).lean();
+    const plant = await Plant.findOne({ _id: id, isActive: true }).lean();
 
     if (!plant) {
       return res.status(404).json({
@@ -259,9 +300,15 @@ export const getPlantById = async (req, res) => {
       });
     }
 
+    const reviews = await getPlantReviews(id);
+
     return res.status(200).json({
       success: true,
-      data: plant,
+      data: {
+        ...plant,
+        inStock: plant.quantity > 0,
+        recentReviews: reviews,
+      },
     });
   } catch (error) {
     console.error('Get nursery plant error:', error);
@@ -278,6 +325,8 @@ export const getPlantById = async (req, res) => {
 | GET CATEGORIES
 |--------------------------------------------------------------------------
 | GET /api/nursery/categories
+|
+| Categories that currently have plants (case-insensitive, de-duplicated).
 |--------------------------------------------------------------------------
 */
 
@@ -285,17 +334,19 @@ export const getCategories = async (req, res) => {
   try {
     const categories = await Plant.distinct('category', {
       isActive: true,
+      quantity: { $gt: 0 },
     });
 
-    const sortedCategories = categories
-      .filter(Boolean)
-      .sort((a, b) =>
-        a.localeCompare(b),
-      );
+    const unique = new Map();
+
+    for (const category of categories) {
+      const trimmed = typeof category === 'string' ? category.trim() : '';
+      if (trimmed && !unique.has(trimmed.toLowerCase())) unique.set(trimmed.toLowerCase(), trimmed);
+    }
 
     return res.status(200).json({
       success: true,
-      data: sortedCategories,
+      data: [...unique.values()].sort((a, b) => a.localeCompare(b)),
     });
   } catch (error) {
     console.error('Get nursery categories error:', error);
@@ -313,138 +364,22 @@ export const getCategories = async (req, res) => {
 |--------------------------------------------------------------------------
 | POST /api/nursery/plants
 |
-| User can list their own plant.
+| State and district default to the seller's profile.
 |--------------------------------------------------------------------------
 */
 
 export const createPlant = async (req, res) => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
+    const userId = getAuthenticatedUserId(req);
 
-    const auth = requireAuthenticatedUser(req);
-
-    if (!auth.valid) {
-      console.error(
-        'Create plant: unable to determine authenticated user',
-        req.user,
-      );
-
+    if (!userId) {
       return res.status(401).json({
         success: false,
         message: 'Authenticated user not found',
       });
     }
 
-    const {userId} = auth;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Request body
-    |--------------------------------------------------------------------------
-    */
-
-    const {
-      name,
-      category,
-      description = '',
-      images = [],
-      price,
-      quantity,
-      state = '',
-      district = '',
-    } = req.body;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Required fields
-    |--------------------------------------------------------------------------
-    */
-
-    if (!name?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Plant name is required',
-      });
-    }
-
-    if (!category?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Plant category is required',
-      });
-    }
-
-    if (
-      price === undefined ||
-      price === null ||
-      price === ''
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Plant price is required',
-      });
-    }
-
-    if (
-      quantity === undefined ||
-      quantity === null ||
-      quantity === ''
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Plant quantity is required',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Number validation
-    |--------------------------------------------------------------------------
-    */
-
-    const plantPrice = Number(price);
-    const plantQuantity = Number(quantity);
-
-    if (
-      !Number.isFinite(plantPrice) ||
-      plantPrice < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid plant price',
-      });
-    }
-
-    if (
-      !Number.isFinite(plantQuantity) ||
-      plantQuantity < 0 ||
-      !Number.isInteger(plantQuantity)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Quantity must be a valid whole number',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Find authenticated user
-    |--------------------------------------------------------------------------
-    |
-    | This is important.
-    |
-    | We don't blindly trust req.user._id.
-    | We resolve the actual MongoDB user document.
-    |
-    */
-
-    const user = await User.findById(userId).select(
-      '_id fullName name firstName lastName email',
-    );
+    const user = await User.findById(userId).select('fullName email state district');
 
     if (!user) {
       return res.status(404).json({
@@ -453,82 +388,35 @@ export const createPlant = async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Seller name
-    |--------------------------------------------------------------------------
-    */
+    const body = { ...req.body };
 
-    const sellerName =
-      user.fullName ||
-      user.name ||
-      [user.firstName, user.lastName]
-        .filter(Boolean)
-        .join(' ') ||
-      user.email ||
-      'KhetiMaster User';
+    for (const key of ['state', 'district']) {
+      if (body[key] === undefined || body[key] === '') body[key] = user[key] || '';
+    }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Images
-    |--------------------------------------------------------------------------
-    */
+    const { fields, error } = buildPlantFields(body, { isCreate: true });
 
-    const plantImages = Array.isArray(images)
-      ? images.filter(
-          image =>
-            typeof image === 'string' &&
-            image.trim().length > 0,
-        )
-      : [];
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Create listing
-    |--------------------------------------------------------------------------
-    */
+    const location = {
+      state: fields['location.state'],
+      district: fields['location.district'],
+    };
+
+    delete fields['location.state'];
+    delete fields['location.district'];
 
     const plant = await Plant.create({
-      name: name.trim(),
-
-      category: category.trim(),
-
-      description:
-        typeof description === 'string'
-          ? description.trim()
-          : '',
-
-      images: plantImages,
-
-      price: plantPrice,
-
-      quantity: plantQuantity,
-
+      ...fields,
+      location,
       seller: {
         userId: user._id,
-        name: sellerName,
+        name: user.fullName || user.email || 'KhetiMaster User',
       },
-
-      location: {
-        state:
-          typeof state === 'string'
-            ? state.trim()
-            : '',
-
-        district:
-          typeof district === 'string'
-            ? district.trim()
-            : '',
-      },
-
       isActive: true,
     });
-
-    /*
-    |--------------------------------------------------------------------------
-    | Success
-    |--------------------------------------------------------------------------
-    */
 
     return res.status(201).json({
       success: true,
@@ -536,32 +424,7 @@ export const createPlant = async (req, res) => {
       data: plant,
     });
   } catch (error) {
-    console.error(
-      'Create plant listing error:',
-      error,
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Mongoose validation error
-    |--------------------------------------------------------------------------
-    */
-
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Plant validation failed',
-        errors: Object.values(error.errors).map(
-          validationError => validationError.message,
-        ),
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Generic error
-    |--------------------------------------------------------------------------
-    */
+    console.error('Create plant listing error:', error);
 
     return res.status(500).json({
       success: false,
@@ -575,39 +438,53 @@ export const createPlant = async (req, res) => {
 | GET MY LISTINGS
 |--------------------------------------------------------------------------
 | GET /api/nursery/my-listings
+|
+| Each listing includes pendingOrders: units ordered that the seller
+| still has to confirm or dispatch.
 |--------------------------------------------------------------------------
 */
 
 export const getMyListings = async (req, res) => {
   try {
-    const auth = requireAuthenticatedUser(req);
+    const userId = getAuthenticatedUserId(req);
 
-    if (!auth.valid) {
+    if (!userId) {
       return res.status(401).json({
         success: false,
         message: 'Authenticated user not found',
       });
     }
 
-    const {userId} = auth;
+    const plants = await Plant.find({ 'seller.userId': userId }).sort({ createdAt: -1 }).lean();
 
-    const plants = await Plant.find({
-      'seller.userId': userId,
-    })
-      .sort({
-        createdAt: -1,
-      })
-      .lean();
+    const pending = await NurseryOrder.aggregate([
+      { $match: { 'items.seller.userId': new mongoose.Types.ObjectId(String(userId)) } },
+      { $unwind: '$items' },
+      {
+        $match: {
+          'items.seller.userId': new mongoose.Types.ObjectId(String(userId)),
+        },
+      },
+      {
+        $addFields: {
+          effectiveStatus: { $ifNull: ['$items.status', '$orderStatus'] },
+        },
+      },
+      { $match: { effectiveStatus: { $in: ['PENDING', 'CONFIRMED'] } } },
+      { $group: { _id: '$items.plant', units: { $sum: '$items.quantity' } } },
+    ]);
+
+    const pendingByPlant = new Map(pending.map((entry) => [String(entry._id), entry.units]));
 
     return res.status(200).json({
       success: true,
-      data: plants,
+      data: plants.map((plant) => ({
+        ...plant,
+        pendingOrders: pendingByPlant.get(String(plant._id)) || 0,
+      })),
     });
   } catch (error) {
-    console.error(
-      'Get my nursery listings error:',
-      error,
-    );
+    console.error('Get my nursery listings error:', error);
 
     return res.status(500).json({
       success: false,
@@ -621,53 +498,42 @@ export const getMyListings = async (req, res) => {
 | UPDATE PLANT LISTING
 |--------------------------------------------------------------------------
 | PUT /api/nursery/plants/:id
+|
+| Price changes only apply to new orders; existing orders keep the price
+| they were placed at.
 |--------------------------------------------------------------------------
 */
 
 export const updatePlant = async (req, res) => {
   try {
-    const {id} = req.params;
+    const userId = getAuthenticatedUserId(req);
+    const { id } = req.params;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate plant ID
-    |--------------------------------------------------------------------------
-    */
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid plant ID',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
-    const auth = requireAuthenticatedUser(req);
-
-    if (!auth.valid) {
+    if (!userId) {
       return res.status(401).json({
         success: false,
         message: 'Authenticated user not found',
       });
     }
 
-    const {userId} = auth;
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plant ID',
+      });
+    }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find user's listing
-    |--------------------------------------------------------------------------
-    */
+    const { fields, error } = buildPlantFields(req.body, { isCreate: false });
 
-    const plant = await Plant.findOne({
-      _id: id,
-      'seller.userId': userId,
-    });
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const plant = await Plant.findOneAndUpdate(
+      { _id: id, 'seller.userId': userId },
+      { $set: fields },
+      { returnDocument: 'after', runValidators: true }
+    );
 
     if (!plant) {
       return res.status(404).json({
@@ -676,195 +542,13 @@ export const updatePlant = async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Request body
-    |--------------------------------------------------------------------------
-    */
-
-    const {
-      name,
-      category,
-      description,
-      images,
-      price,
-      quantity,
-      state,
-      district,
-      isActive,
-    } = req.body;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Name
-    |--------------------------------------------------------------------------
-    */
-
-    if (name !== undefined) {
-      if (
-        typeof name !== 'string' ||
-        !name.trim()
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: 'Plant name cannot be empty',
-        });
-      }
-
-      plant.name = name.trim();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Category
-    |--------------------------------------------------------------------------
-    */
-
-    if (category !== undefined) {
-      if (
-        typeof category !== 'string' ||
-        !category.trim()
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: 'Plant category cannot be empty',
-        });
-      }
-
-      plant.category = category.trim();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Description
-    |--------------------------------------------------------------------------
-    */
-
-    if (description !== undefined) {
-      plant.description =
-        typeof description === 'string'
-          ? description.trim()
-          : '';
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Images
-    |--------------------------------------------------------------------------
-    */
-
-    if (images !== undefined) {
-      plant.images = Array.isArray(images)
-        ? images.filter(
-            image =>
-              typeof image === 'string' &&
-              image.trim().length > 0,
-          )
-        : [];
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Price
-    |--------------------------------------------------------------------------
-    */
-
-    if (price !== undefined) {
-      const newPrice = Number(price);
-
-      if (
-        !Number.isFinite(newPrice) ||
-        newPrice < 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid price',
-        });
-      }
-
-      plant.price = newPrice;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Quantity
-    |--------------------------------------------------------------------------
-    */
-
-    if (quantity !== undefined) {
-      const newQuantity = Number(quantity);
-
-      if (
-        !Number.isInteger(newQuantity) ||
-        newQuantity < 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: 'Quantity must be a valid whole number',
-        });
-      }
-
-      plant.quantity = newQuantity;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Location
-    |--------------------------------------------------------------------------
-    */
-
-    if (state !== undefined) {
-      plant.location.state =
-        typeof state === 'string'
-          ? state.trim()
-          : '';
-    }
-
-    if (district !== undefined) {
-      plant.location.district =
-        typeof district === 'string'
-          ? district.trim()
-          : '';
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Active status
-    |--------------------------------------------------------------------------
-    */
-
-    if (isActive !== undefined) {
-      plant.isActive = Boolean(isActive);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Save
-    |--------------------------------------------------------------------------
-    */
-
-    await plant.save();
-
     return res.status(200).json({
       success: true,
       message: 'Plant listing updated successfully',
       data: plant,
     });
   } catch (error) {
-    console.error(
-      'Update plant listing error:',
-      error,
-    );
-
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Plant validation failed',
-        errors: Object.values(error.errors).map(
-          validationError => validationError.message,
-        ),
-      });
-    }
+    console.error('Update plant listing error:', error);
 
     return res.status(500).json({
       success: false,
@@ -878,57 +562,35 @@ export const updatePlant = async (req, res) => {
 | DELETE PLANT LISTING
 |--------------------------------------------------------------------------
 | DELETE /api/nursery/plants/:id
+|
+| Soft delete. Orders already placed for this plant are not affected;
+| the seller still fulfils or cancels them from the seller orders screen.
 |--------------------------------------------------------------------------
-|
-| We use a soft delete instead of permanently deleting
-| the document.
-|
 */
 
 export const deletePlant = async (req, res) => {
   try {
-    const {id} = req.params;
+    const userId = getAuthenticatedUserId(req);
+    const { id } = req.params;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate ID
-    |--------------------------------------------------------------------------
-    */
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid plant ID',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
-    const auth = requireAuthenticatedUser(req);
-
-    if (!auth.valid) {
+    if (!userId) {
       return res.status(401).json({
         success: false,
         message: 'Authenticated user not found',
       });
     }
 
-    const {userId} = auth;
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plant ID',
+      });
+    }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find listing owned by user
-    |--------------------------------------------------------------------------
-    */
-
-    const plant = await Plant.findOne({
-      _id: id,
-      'seller.userId': userId,
-    });
+    const plant = await Plant.findOneAndUpdate(
+      { _id: id, 'seller.userId': userId },
+      { $set: { isActive: false } }
+    );
 
     if (!plant) {
       return res.status(404).json({
@@ -937,25 +599,12 @@ export const deletePlant = async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Soft delete
-    |--------------------------------------------------------------------------
-    */
-
-    plant.isActive = false;
-
-    await plant.save();
-
     return res.status(200).json({
       success: true,
       message: 'Plant listing removed successfully',
     });
   } catch (error) {
-    console.error(
-      'Delete plant listing error:',
-      error,
-    );
+    console.error('Delete plant listing error:', error);
 
     return res.status(500).json({
       success: false,

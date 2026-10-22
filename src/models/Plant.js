@@ -70,6 +70,26 @@ const plantSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+
+    // Kept in sync from delivered order item reviews
+    rating: {
+      type: Number,
+      min: 0,
+      max: 5,
+      default: 0,
+    },
+
+    totalReviews: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    totalSold: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
   },
   {
     timestamps: true,
@@ -85,6 +105,12 @@ plantSchema.index({
 // Category filtering
 plantSchema.index({
   category: 1,
+});
+
+// Seller listings
+plantSchema.index({
+  'seller.userId': 1,
+  createdAt: -1,
 });
 
 // Location filtering

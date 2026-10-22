@@ -8,6 +8,7 @@ import {
   getMyListings,
   updatePlant,
   deletePlant,
+  getNurseryMeta,
 } from '../controllers/nurseryController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -19,6 +20,9 @@ const router = express.Router();
 | PUBLIC ROUTES
 |--------------------------------------------------------------------------
 */
+
+// Categories, order statuses, delivery rules
+router.get('/meta', getNurseryMeta);
 
 // Get all available plants
 router.get('/plants', getPlants);
@@ -36,31 +40,15 @@ router.get('/plants/:id', getPlantById);
 */
 
 // Create listing
-router.post(
-  '/plants',
-  authMiddleware,
-  createPlant
-);
+router.post('/plants', authMiddleware, createPlant);
 
 // Get user's listings
-router.get(
-  '/my-listings',
-  authMiddleware,
-  getMyListings
-);
+router.get('/my-listings', authMiddleware, getMyListings);
 
 // Update user's listing
-router.put(
-  '/plants/:id',
-  authMiddleware,
-  updatePlant
-);
+router.put('/plants/:id', authMiddleware, updatePlant);
 
 // Remove user's listing
-router.delete(
-  '/plants/:id',
-  authMiddleware,
-  deletePlant
-);
+router.delete('/plants/:id', authMiddleware, deletePlant);
 
 export default router;

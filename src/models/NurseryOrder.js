@@ -48,6 +48,42 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+
+    /*
+     * Each seller moves their own items forward. Older orders have no
+     * item status; for them the order's orderStatus applies.
+     */
+    status: {
+      type: String,
+      enum: [
+        'PENDING',
+        'CONFIRMED',
+        'DISPATCHED',
+        'OUT_FOR_DELIVERY',
+        'DELIVERED',
+        'CANCELLED',
+        null,
+      ],
+      default: null,
+    },
+
+    statusUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+
+    cancellationReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+
+    review: {
+      rating: { type: Number, min: 1, max: 5, default: null },
+      comment: { type: String, default: '', trim: true, maxlength: 500 },
+      createdAt: { type: Date, default: null },
+    },
   },
   {
     _id: true,
@@ -152,21 +188,39 @@ const nurseryOrderSchema = new mongoose.Schema(
       default: 'PENDING',
     },
 
+    /*
+     * Overall status, derived from the item statuses: the least
+     * advanced item that isn't cancelled (CANCELLED if all are).
+     */
     orderStatus: {
       type: String,
-      enum: [
-        'PENDING',
-        'CONFIRMED',
-        'DISPATCHED',
-        'OUT_FOR_DELIVERY',
-        'DELIVERED',
-        'CANCELLED',
-      ],
+      enum: ['PENDING', 'CONFIRMED', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
       default: 'PENDING',
+    },
+
+    cancelledBy: {
+      type: String,
+      enum: ['BUYER', 'SELLER', null],
+      default: null,
+    },
+
+    cancellationReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+
+    deliveredAt: {
+      type: Date,
+      default: null,
     },
   },
   {
     timestamps: true,
+
+    // Concurrent buyer / seller updates fail instead of overwriting
+    optimisticConcurrency: true,
   }
 );
 
@@ -175,9 +229,15 @@ nurseryOrderSchema.index({
   createdAt: -1,
 });
 
-const NurseryOrder = mongoose.model(
-  'NurseryOrder',
-  nurseryOrderSchema
-);
+nurseryOrderSchema.index({
+  'items.seller.userId': 1,
+  createdAt: -1,
+});
+
+nurseryOrderSchema.index({
+  'items.plant': 1,
+});
+
+const NurseryOrder = mongoose.model('NurseryOrder', nurseryOrderSchema);
 
 export default NurseryOrder;

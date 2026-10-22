@@ -3,131 +3,85 @@ import mongoose from 'mongoose';
 import NurseryCart from '../models/NurseryCart.js';
 import Plant from '../models/Plant.js';
 
+import { MAX_CART_ITEMS, calculateDeliveryFee } from '../data/nurseryOptions.js';
+
+const PLANT_FIELDS = 'name category description images price quantity seller location isActive';
+
 /*
 |--------------------------------------------------------------------------
-| HELPER — GET AUTHENTICATED USER ID
+| HELPERS
 |--------------------------------------------------------------------------
-|
-| Depending on your auth middleware, the user ID may be stored as:
-|
-| req.user._id
-| req.user.id
-| req.user.userId
-| req.user.sub
-|
 */
 
-const getAuthenticatedUserId = req => {
-  if (!req.user) {
-    return null;
-  }
-
-  return (
-    req.user._id ||
-    req.user.id ||
-    req.user.userId ||
-    req.user.sub ||
-    null
-  );
+const getValidUserId = (req) => {
+  const userId = req.user?.userId;
+  return userId && mongoose.Types.ObjectId.isValid(userId) ? userId : null;
 };
 
-/*
-|--------------------------------------------------------------------------
-| HELPER — VALIDATE USER ID
-|--------------------------------------------------------------------------
-*/
-
-const getValidUserId = req => {
-  const userId = getAuthenticatedUserId(req);
-
-  if (!userId) {
-    return null;
-  }
-
-  if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return null;
-  }
-
-  return userId;
-};
-
-/*
-|--------------------------------------------------------------------------
-| HELPER — POPULATE CART
-|--------------------------------------------------------------------------
-*/
-
-const populateCart = async cart => {
-  if (!cart) {
-    return null;
-  }
-
-  await cart.populate({
-    path: 'items.plant',
-    select:
-      'name category description images price quantity seller location isActive',
+const unauthorized = (res) =>
+  res.status(401).json({
+    success: false,
+    message: 'Authenticated user not found',
   });
 
-  return cart;
+/*
+ * Get the user's cart, creating an empty one if needed.
+ */
+const getOrCreateCart = async (userId) => {
+  try {
+    return await NurseryCart.findOneAndUpdate(
+      { user: userId },
+      { $setOnInsert: { user: userId, items: [] } },
+      { upsert: true, returnDocument: 'after' }
+    );
+  } catch (error) {
+    // Two requests created the cart at the same moment; it exists now.
+    if (error.code === 11000) return NurseryCart.findOne({ user: userId });
+    throw error;
+  }
 };
 
 /*
-|--------------------------------------------------------------------------
-| HELPER — FORMAT CART
-|--------------------------------------------------------------------------
-|
-| Converts the MongoDB cart into the structure used by the frontend.
-|
-*/
-
-const formatCart = cart => {
-  if (!cart) {
+ * Converts the cart into the structure used by the app.
+ *
+ * Items whose plant was removed or sold out are listed under
+ * unavailableItems instead of being silently dropped. Items with more
+ * quantity than is now in stock are capped and flagged.
+ */
+const formatCart = async (cart) => {
+  if (!cart || cart.items.length === 0) {
     return {
       items: [],
+      unavailableItems: [],
       subtotal: 0,
+      deliveryFee: 0,
+      total: 0,
       totalItems: 0,
     };
   }
+
+  await cart.populate({ path: 'items.plant', select: PLANT_FIELDS });
 
   let subtotal = 0;
   let totalItems = 0;
 
   const items = [];
+  const unavailableItems = [];
 
   for (const item of cart.items) {
     const plant = item.plant;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Ignore deleted / unavailable plants
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      !plant ||
-      !plant.isActive ||
-      plant.quantity <= 0
-    ) {
+    if (!plant || !plant.isActive || plant.quantity <= 0) {
+      unavailableItems.push({
+        _id: item._id,
+        name: plant?.name || 'Plant',
+        reason: !plant || !plant.isActive ? 'No longer available' : 'Out of stock',
+      });
       continue;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Never allow cart quantity to exceed current stock
-    |--------------------------------------------------------------------------
-    */
-
-    const quantity = Math.min(
-      item.quantity,
-      plant.quantity,
-    );
-
-    if (quantity <= 0) {
-      continue;
-    }
-
-    const itemTotal =
-      Number(plant.price) * quantity;
+    const quantity = Math.min(item.quantity, plant.quantity);
+    const itemTotal = Number(plant.price) * quantity;
 
     subtotal += itemTotal;
     totalItems += quantity;
@@ -137,12 +91,18 @@ const formatCart = cart => {
       quantity,
       plant,
       itemTotal,
+      quantityAdjusted: quantity !== item.quantity,
     });
   }
 
+  const deliveryFee = items.length > 0 ? calculateDeliveryFee(subtotal) : 0;
+
   return {
     items,
+    unavailableItems,
     subtotal,
+    deliveryFee,
+    total: subtotal + deliveryFee,
     totalItems,
   };
 };
@@ -157,78 +117,17 @@ const formatCart = cart => {
 
 export const getCart = async (req, res) => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
     const userId = getValidUserId(req);
+    if (!userId) return unauthorized(res);
 
-    if (!userId) {
-      console.error(
-        'Get nursery cart: invalid authenticated user',
-        req.user,
-      );
-
-      return res.status(401).json({
-        success: false,
-        message: 'Authenticated user not found',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Find cart
-    |--------------------------------------------------------------------------
-    */
-
-    const cart = await NurseryCart.findOne({
-      user: userId,
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | No cart yet
-    |--------------------------------------------------------------------------
-    */
-
-    if (!cart) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          items: [],
-          subtotal: 0,
-          totalItems: 0,
-        },
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Populate plants
-    |--------------------------------------------------------------------------
-    */
-
-    await populateCart(cart);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Format response
-    |--------------------------------------------------------------------------
-    */
-
-    const formattedCart = formatCart(cart);
+    const cart = await NurseryCart.findOne({ user: userId });
 
     return res.status(200).json({
       success: true,
-      data: formattedCart,
+      data: await formatCart(cart),
     });
   } catch (error) {
-    console.error(
-      'Get nursery cart error:',
-      error,
-    );
+    console.error('Get nursery cart error:', error);
 
     return res.status(500).json({
       success: false,
@@ -242,98 +141,35 @@ export const getCart = async (req, res) => {
 | ADD TO CART
 |--------------------------------------------------------------------------
 | POST /api/nursery/cart
+|
+| { "plantId": "...", "quantity": 1 }
 |--------------------------------------------------------------------------
-|
-| Body:
-|
-| {
-|   "plantId": "...",
-|   "quantity": 1
-| }
-|
 */
 
 export const addToCart = async (req, res) => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
     const userId = getValidUserId(req);
+    if (!userId) return unauthorized(res);
 
-    if (!userId) {
-      console.error(
-        'Add to nursery cart: invalid authenticated user',
-        req.user,
-      );
+    const { plantId, quantity = 1 } = req.body;
 
-      return res.status(401).json({
-        success: false,
-        message: 'Authenticated user not found',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Request body
-    |--------------------------------------------------------------------------
-    */
-
-    const {
-      plantId,
-      quantity = 1,
-    } = req.body;
-
-    if (!plantId) {
+    if (!plantId || !mongoose.Types.ObjectId.isValid(plantId)) {
       return res.status(400).json({
         success: false,
-        message: 'Plant ID is required',
+        message: 'A valid plant ID is required',
       });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate plant ID
-    |--------------------------------------------------------------------------
-    */
-
-    if (!mongoose.Types.ObjectId.isValid(plantId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid plant ID',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate quantity
-    |--------------------------------------------------------------------------
-    */
 
     const requestedQuantity = Number(quantity);
 
-    if (
-      !Number.isInteger(requestedQuantity) ||
-      requestedQuantity < 1
-    ) {
+    if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) {
       return res.status(400).json({
         success: false,
         message: 'Quantity must be at least 1',
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find plant
-    |--------------------------------------------------------------------------
-    */
-
-    const plant = await Plant.findOne({
-      _id: plantId,
-      isActive: true,
-    });
+    const plant = await Plant.findOne({ _id: plantId, isActive: true });
 
     if (!plant) {
       return res.status(404).json({
@@ -342,11 +178,12 @@ export const addToCart = async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Stock validation
-    |--------------------------------------------------------------------------
-    */
+    if (String(plant.seller?.userId) === String(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot buy your own plant',
+      });
+    }
 
     if (plant.quantity <= 0) {
       return res.status(400).json({
@@ -355,114 +192,43 @@ export const addToCart = async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find user's cart
-    |--------------------------------------------------------------------------
-    */
-
-    let cart = await NurseryCart.findOne({
-      user: userId,
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | Create cart if it doesn't exist
-    |--------------------------------------------------------------------------
-    */
-
-    if (!cart) {
-      cart = new NurseryCart({
-        user: userId,
-        items: [],
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Check existing item
-    |--------------------------------------------------------------------------
-    */
+    const cart = await getOrCreateCart(userId);
 
     const existingItem = cart.items.find(
-      item =>
-        item.plant &&
-        item.plant.toString() ===
-          plant._id.toString(),
+      (item) => item.plant && String(item.plant) === String(plant._id)
     );
 
-    if (existingItem) {
-      const newQuantity =
-        existingItem.quantity +
-        requestedQuantity;
+    const newQuantity = (existingItem?.quantity || 0) + requestedQuantity;
 
-      if (newQuantity > plant.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Only ${plant.quantity} plants are available`,
-        });
-      }
-
-      existingItem.quantity = newQuantity;
-    } else {
-      if (
-        requestedQuantity >
-        plant.quantity
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: `Only ${plant.quantity} plants are available`,
-        });
-      }
-
-      cart.items.push({
-        plant: plant._id,
-        quantity: requestedQuantity,
+    if (newQuantity > plant.quantity) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${plant.quantity} plants are available`,
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Save
-    |--------------------------------------------------------------------------
-    */
+    if (existingItem) {
+      existingItem.quantity = newQuantity;
+    } else {
+      if (cart.items.length >= MAX_CART_ITEMS) {
+        return res.status(400).json({
+          success: false,
+          message: `Your cart can hold at most ${MAX_CART_ITEMS} different plants`,
+        });
+      }
+
+      cart.items.push({ plant: plant._id, quantity: requestedQuantity });
+    }
 
     await cart.save();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Populate updated cart
-    |--------------------------------------------------------------------------
-    */
-
-    await populateCart(cart);
-
-    const formattedCart = formatCart(cart);
 
     return res.status(200).json({
       success: true,
       message: 'Plant added to cart',
-      data: formattedCart,
+      data: await formatCart(cart),
     });
   } catch (error) {
-    console.error(
-      'Add to nursery cart error:',
-      error,
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Duplicate cart protection
-    |--------------------------------------------------------------------------
-    */
-
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message:
-          'Cart already exists. Please try again.',
-      });
-    }
+    console.error('Add to nursery cart error:', error);
 
     return res.status(500).json({
       success: false,
@@ -476,99 +242,36 @@ export const addToCart = async (req, res) => {
 | UPDATE CART ITEM
 |--------------------------------------------------------------------------
 | PUT /api/nursery/cart/:itemId
+|
+| { "quantity": 3 }
 |--------------------------------------------------------------------------
-|
-| Body:
-|
-| {
-|   "quantity": 3
-| }
-|
 */
 
-export const updateCartItem = async (
-  req,
-  res,
-) => {
+export const updateCartItem = async (req, res) => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
     const userId = getValidUserId(req);
+    if (!userId) return unauthorized(res);
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authenticated user not found',
-      });
-    }
+    const { itemId } = req.params;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Params
-    |--------------------------------------------------------------------------
-    */
-
-    const {itemId} = req.params;
-
-    if (
-      !mongoose.Types.ObjectId.isValid(
-        itemId,
-      )
-    ) {
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid cart item ID',
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Quantity
-    |--------------------------------------------------------------------------
-    */
+    const newQuantity = Number(req.body?.quantity);
 
-    const {quantity} = req.body;
-
-    const newQuantity = Number(quantity);
-
-    if (
-      !Number.isInteger(newQuantity) ||
-      newQuantity < 1
-    ) {
+    if (!Number.isInteger(newQuantity) || newQuantity < 1) {
       return res.status(400).json({
         success: false,
         message: 'Quantity must be at least 1',
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find cart
-    |--------------------------------------------------------------------------
-    */
-
-    const cart = await NurseryCart.findOne({
-      user: userId,
-    });
-
-    if (!cart) {
-      return res.status(404).json({
-        success: false,
-        message: 'Cart not found',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Find item
-    |--------------------------------------------------------------------------
-    */
-
-    const item = cart.items.id(itemId);
+    const cart = await NurseryCart.findOne({ user: userId });
+    const item = cart?.items.id(itemId);
 
     if (!item) {
       return res.status(404).json({
@@ -577,81 +280,40 @@ export const updateCartItem = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find plant
-    |--------------------------------------------------------------------------
-    */
+    const plant = await Plant.findById(item.plant);
 
-    const plant = await Plant.findById(
-      item.plant,
-    );
-
-    if (
-      !plant ||
-      !plant.isActive
-    ) {
+    if (!plant || !plant.isActive) {
       return res.status(404).json({
         success: false,
-        message:
-          'Plant is no longer available',
+        message: 'Plant is no longer available',
       });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Stock validation
-    |--------------------------------------------------------------------------
-    */
 
     if (plant.quantity <= 0) {
       return res.status(400).json({
         success: false,
-        message:
-          'Plant is currently out of stock',
+        message: 'Plant is currently out of stock',
       });
     }
 
-    if (
-      newQuantity >
-      plant.quantity
-    ) {
+    if (newQuantity > plant.quantity) {
       return res.status(400).json({
         success: false,
         message: `Only ${plant.quantity} plants are available`,
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update
-    |--------------------------------------------------------------------------
-    */
-
     item.quantity = newQuantity;
 
     await cart.save();
 
-    /*
-    |--------------------------------------------------------------------------
-    | Populate
-    |--------------------------------------------------------------------------
-    */
-
-    await populateCart(cart);
-
-    const formattedCart = formatCart(cart);
-
     return res.status(200).json({
       success: true,
       message: 'Cart updated successfully',
-      data: formattedCart,
+      data: await formatCart(cart),
     });
   } catch (error) {
-    console.error(
-      'Update nursery cart error:',
-      error,
-    );
+    console.error('Update nursery cart error:', error);
 
     return res.status(500).json({
       success: false,
@@ -668,107 +330,40 @@ export const updateCartItem = async (
 |--------------------------------------------------------------------------
 */
 
-export const removeFromCart = async (
-  req,
-  res,
-) => {
+export const removeFromCart = async (req, res) => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
     const userId = getValidUserId(req);
+    if (!userId) return unauthorized(res);
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authenticated user not found',
-      });
-    }
+    const { itemId } = req.params;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Item ID
-    |--------------------------------------------------------------------------
-    */
-
-    const {itemId} = req.params;
-
-    if (
-      !mongoose.Types.ObjectId.isValid(
-        itemId,
-      )
-    ) {
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid cart item ID',
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find cart
-    |--------------------------------------------------------------------------
-    */
-
-    const cart = await NurseryCart.findOne({
-      user: userId,
-    });
+    const cart = await NurseryCart.findOneAndUpdate(
+      { user: userId, 'items._id': itemId },
+      { $pull: { items: { _id: itemId } } },
+      { returnDocument: 'after' }
+    );
 
     if (!cart) {
-      return res.status(404).json({
-        success: false,
-        message: 'Cart not found',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Find item
-    |--------------------------------------------------------------------------
-    */
-
-    const item = cart.items.id(itemId);
-
-    if (!item) {
       return res.status(404).json({
         success: false,
         message: 'Cart item not found',
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Remove item
-    |--------------------------------------------------------------------------
-    */
-
-    item.deleteOne();
-
-    await cart.save();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Return updated cart
-    |--------------------------------------------------------------------------
-    */
-
-    await populateCart(cart);
-
-    const formattedCart = formatCart(cart);
-
     return res.status(200).json({
       success: true,
       message: 'Item removed from cart',
-      data: formattedCart,
+      data: await formatCart(cart),
     });
   } catch (error) {
-    console.error(
-      'Remove nursery cart item error:',
-      error,
-    );
+    console.error('Remove nursery cart item error:', error);
 
     return res.status(500).json({
       success: false,
@@ -785,57 +380,20 @@ export const removeFromCart = async (
 |--------------------------------------------------------------------------
 */
 
-export const clearCart = async (
-  req,
-  res,
-) => {
+export const clearCart = async (req, res) => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Authentication
-    |--------------------------------------------------------------------------
-    */
-
     const userId = getValidUserId(req);
+    if (!userId) return unauthorized(res);
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authenticated user not found',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Clear items
-    |--------------------------------------------------------------------------
-    */
-
-    await NurseryCart.findOneAndUpdate(
-      {
-        user: userId,
-      },
-      {
-        $set: {
-          items: [],
-        },
-      },
-    );
+    await NurseryCart.updateOne({ user: userId }, { $set: { items: [] } });
 
     return res.status(200).json({
       success: true,
       message: 'Cart cleared successfully',
-      data: {
-        items: [],
-        subtotal: 0,
-        totalItems: 0,
-      },
+      data: await formatCart(null),
     });
   } catch (error) {
-    console.error(
-      'Clear nursery cart error:',
-      error,
-    );
+    console.error('Clear nursery cart error:', error);
 
     return res.status(500).json({
       success: false,
