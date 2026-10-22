@@ -1,3 +1,14 @@
+/*
+|--------------------------------------------------------------------------
+| MANDI STATES
+|--------------------------------------------------------------------------
+|
+| aliases are other spellings used by data.gov.in (it uses "Keralam",
+| "Chattisgarh", ...). Matching a state checks the name and all aliases,
+| so the app can always send the name shown here.
+|
+*/
+
 const MANDI_STATES = [
   {
     id: 'andhra-pradesh',
@@ -18,6 +29,7 @@ const MANDI_STATES = [
   {
     id: 'chhattisgarh',
     name: 'Chhattisgarh',
+    aliases: ['Chattisgarh'],
   },
   {
     id: 'goa',
@@ -46,6 +58,7 @@ const MANDI_STATES = [
   {
     id: 'kerala',
     name: 'Kerala',
+    aliases: ['Keralam'],
   },
   {
     id: 'madhya-pradesh',
@@ -74,6 +87,7 @@ const MANDI_STATES = [
   {
     id: 'odisha',
     name: 'Odisha',
+    aliases: ['Orissa'],
   },
   {
     id: 'punjab',
@@ -106,6 +120,7 @@ const MANDI_STATES = [
   {
     id: 'uttarakhand',
     name: 'Uttarakhand',
+    aliases: ['Uttrakhand'],
   },
   {
     id: 'west-bengal',
@@ -114,6 +129,7 @@ const MANDI_STATES = [
   {
     id: 'andaman-and-nicobar-islands',
     name: 'Andaman and Nicobar Islands',
+    aliases: ['Andaman and Nicobar', 'Andaman & Nicobar'],
   },
   {
     id: 'chandigarh',
@@ -122,14 +138,17 @@ const MANDI_STATES = [
   {
     id: 'dadra-and-nagar-haveli-and-daman-and-diu',
     name: 'Dadra and Nagar Haveli and Daman and Diu',
+    aliases: ['Dadra and Nagar Haveli', 'Dadra & Nagar Haveli', 'Daman and Diu'],
   },
   {
     id: 'delhi',
     name: 'Delhi',
+    aliases: ['NCT of Delhi'],
   },
   {
     id: 'jammu-and-kashmir',
     name: 'Jammu and Kashmir',
+    aliases: ['Jammu & Kashmir'],
   },
   {
     id: 'ladakh',
@@ -142,6 +161,7 @@ const MANDI_STATES = [
   {
     id: 'puducherry',
     name: 'Puducherry',
+    aliases: ['Pondicherry'],
   },
 ];
 

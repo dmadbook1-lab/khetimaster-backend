@@ -1,10 +1,17 @@
-import axios from 'axios';
-
 import MANDI_CROPS from '../data/mandiCrops.js';
 import MANDI_STATES from '../data/mandiLocations.js';
 
-const MANDI_API_URL =
-  'https://api.data.gov.in/resource/35985678-0d79-46b4-9ed6-6f13308a1d24';
+import {
+  MandiServiceError,
+  matchKey,
+  resolveCrop,
+  resolveState,
+  toGovDate,
+  getDailyPrices,
+  getLatestHistoricalPrices,
+  getPricesOnDate,
+  getStateDistricts,
+} from '../services/mandiService.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -12,355 +19,184 @@ const MANDI_API_URL =
 |--------------------------------------------------------------------------
 */
 
-const normalize = value =>
-  String(value || '')
-    .trim()
-    .toLowerCase();
-
-/*
-|--------------------------------------------------------------------------
-| Parse Indian Date
-|--------------------------------------------------------------------------
-|
-| Government API returns:
-|
-| DD/MM/YYYY
-|
-*/
-
-const parseIndianDate = dateString => {
-  if (!dateString) {
-    return 0;
+const sendError = (res, error, fallbackMessage) => {
+  if (error instanceof MandiServiceError) {
+    return res.status(error.status).json({ success: false, message: error.message });
   }
 
-  const [day, month, year] =
-    String(dateString)
-      .trim()
-      .split('/');
+  console.error(fallbackMessage, error);
 
-  if (!day || !month || !year) {
-    return 0;
-  }
+  return res.status(500).json({ success: false, message: fallbackMessage });
+};
 
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-  ).getTime();
+const invalidState = (res) =>
+  res.status(400).json({
+    success: false,
+    message: 'Invalid state selected',
+    availableStates: MANDI_STATES.map((item) => item.name),
+  });
+
+const SORTS = {
+  // state, district, market A-Z (default)
+  location: (a, b) =>
+    (a.state || '').localeCompare(b.state || '') ||
+    (a.district || '').localeCompare(b.district || '') ||
+    (a.market || '').localeCompare(b.market || ''),
+
+  price_desc: (a, b) => (b.modalPrice ?? -1) - (a.modalPrice ?? -1),
+
+  price_asc: (a, b) => (a.modalPrice ?? Infinity) - (b.modalPrice ?? Infinity),
+
+  market: (a, b) => (a.market || '').localeCompare(b.market || ''),
+
+  newest: (a, b) => (b.arrivalDateISO || '').localeCompare(a.arrivalDateISO || ''),
 };
 
 /*
-|--------------------------------------------------------------------------
-| Format Mandi Record
-|--------------------------------------------------------------------------
-*/
+ * Price overview of the matching markets (rupees per quintal).
+ */
+const summarize = (records) => {
+  const priced = records.filter((record) => Number.isFinite(record.modalPrice));
 
-const formatRecord = record => ({
-  arrivalDate:
-    record.Arrival_Date || null,
+  if (priced.length === 0) {
+    return {
+      markets: records.length,
+      averageModalPrice: null,
+      lowestModal: null,
+      highestModal: null,
+      minPrice: null,
+      maxPrice: null,
+      latestArrivalDate: null,
+    };
+  }
 
-  commodity:
-    record.Commodity || null,
+  const byModal = [...priced].sort(SORTS.price_asc);
+  const pick = (record) => ({
+    market: record.market,
+    district: record.district,
+    state: record.state,
+    modalPrice: record.modalPrice,
+  });
 
-  commodityCode:
-    record.Commodity_Code || null,
+  const mins = records.map((record) => record.minPrice).filter(Number.isFinite);
+  const maxes = records.map((record) => record.maxPrice).filter(Number.isFinite);
 
-  state:
-    record.State || null,
+  const latest = records.reduce(
+    (best, record) =>
+      (record.arrivalDateISO || '') > (best?.arrivalDateISO || '') ? record : best,
+    null
+  );
 
-  district:
-    record.District || null,
-
-  market:
-    record.Market?.trim() || null,
-
-  variety:
-    record.Variety?.trim() || null,
-
-  grade:
-    record.Grade?.trim() || null,
-
-  minPrice:
-    record.Min_Price !== undefined
-      ? Number(record.Min_Price)
-      : null,
-
-  maxPrice:
-    record.Max_Price !== undefined
-      ? Number(record.Max_Price)
-      : null,
-
-  modalPrice:
-    record.Modal_Price !== undefined
-      ? Number(record.Modal_Price)
-      : null,
-});
+  return {
+    markets: records.length,
+    averageModalPrice: Math.round(
+      priced.reduce((sum, record) => sum + record.modalPrice, 0) / priced.length
+    ),
+    lowestModal: pick(byModal[0]),
+    highestModal: pick(byModal[byModal.length - 1]),
+    minPrice: mins.length ? Math.min(...mins) : null,
+    maxPrice: maxes.length ? Math.max(...maxes) : null,
+    latestArrivalDate: latest?.arrivalDate || null,
+  };
+};
 
 /*
 |--------------------------------------------------------------------------
 | GET MANDI CROPS
 |--------------------------------------------------------------------------
+| GET /api/mandi/crops
 |
-| These crops are manually maintained in:
-|
-| data/mandiCrops.js
-|
+| Supported crops with their official data.gov.in names and aliases
+| (data/mandiCrops.js). Any other crop name can still be sent to /rates.
+|--------------------------------------------------------------------------
 */
 
-export const getMandiCrops = async (
-  req,
-  res,
-) => {
-  try {
-    return res.status(200).json({
-      success: true,
-
-      count:
-        MANDI_CROPS.length,
-
-      data:
-        MANDI_CROPS,
-    });
-  } catch (error) {
-    console.error(
-      'Get mandi crops error:',
-      error,
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        'Failed to fetch mandi crops',
-    });
-  }
+export const getMandiCrops = async (req, res) => {
+  return res.status(200).json({
+    success: true,
+    count: MANDI_CROPS.length,
+    data: MANDI_CROPS,
+  });
 };
 
 /*
 |--------------------------------------------------------------------------
 | GET MANDI STATES
 |--------------------------------------------------------------------------
+| GET /api/mandi/states
 |
-| Used by the temporary location selector
-| on the Mandi Rates screen.
-|
-| This does NOT modify the user's profile.
-|
+| For the location selector on the Mandi Rates screen. Does not modify
+| the user's profile.
+|--------------------------------------------------------------------------
 */
 
-export const getMandiStates = async (
-  req,
-  res,
-) => {
-  try {
-    return res.status(200).json({
-      success: true,
-
-      count:
-        MANDI_STATES.length,
-
-      data:
-        MANDI_STATES,
-    });
-  } catch (error) {
-    console.error(
-      'Get mandi states error:',
-      error,
-    );
-
-    return res.status(500).json({
-      success: false,
-
-      message:
-        'Failed to fetch mandi states',
-    });
-  }
+export const getMandiStates = async (req, res) => {
+  return res.status(200).json({
+    success: true,
+    count: MANDI_STATES.length,
+    data: MANDI_STATES,
+  });
 };
 
 /*
 |--------------------------------------------------------------------------
 | GET MANDI DISTRICTS
 |--------------------------------------------------------------------------
-|
-| Example:
-|
 | GET /api/mandi/districts?state=Maharashtra
+| GET /api/mandi/districts?state=Maharashtra&crop=onion
 |
-| The government API is queried using the
-| selected state and the unique districts
-| are extracted from the response.
-|
+| Districts that report mandi prices. With crop: only districts that have
+| today's prices for that crop.
+|--------------------------------------------------------------------------
 */
 
-export const getMandiDistricts = async (
-  req,
-  res,
-) => {
+export const getMandiDistricts = async (req, res) => {
   try {
-    const {
-      state,
-    } = req.query;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate State
-    |--------------------------------------------------------------------------
-    */
+    const { state, crop } = req.query;
 
     if (!state) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          'State is required',
-      });
+      return res.status(400).json({ success: false, message: 'State is required' });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate State Against Our State List
-    |--------------------------------------------------------------------------
-    */
+    const selectedState = resolveState(state);
+    if (!selectedState) return invalidState(res);
 
-    const selectedState =
-      MANDI_STATES.find(
-        item =>
-          normalize(item.name) ===
-          normalize(state) ||
-          normalize(item.id) ===
-          normalize(state),
-      );
+    let districts;
+    let stale = false;
 
-    if (!selectedState) {
-      return res.status(400).json({
-        success: false,
+    if (crop) {
+      const selectedCrop = resolveCrop(crop);
 
-        message:
-          'Invalid state selected',
+      if (!selectedCrop) {
+        return res.status(400).json({ success: false, message: 'Invalid crop selected' });
+      }
 
-        availableStates:
-          MANDI_STATES.map(
-            item => item.name,
-          ),
-      });
+      const daily = await getDailyPrices(selectedCrop);
+      stale = daily.stale;
+
+      districts = [
+        ...new Set(
+          daily.records
+            .filter((record) => selectedState.keys.has(matchKey(record.state)))
+            .map((record) => record.district)
+            .filter(Boolean)
+        ),
+      ].sort((a, b) => a.localeCompare(b));
+    } else {
+      const result = await getStateDistricts(selectedState);
+      districts = result.districts;
+      stale = result.stale;
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Use Official State Name
-    |--------------------------------------------------------------------------
-    */
-
-    const officialStateName =
-      selectedState.name;
-
-    console.log(
-      'Fetching mandi districts:',
-      officialStateName,
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Government API Request
-    |--------------------------------------------------------------------------
-    */
-
-    const response =
-      await axios.get(
-        MANDI_API_URL,
-        {
-          params: {
-            'api-key':
-              process.env
-                .DATA_GOV_MANDI_API_KEY,
-
-            format: 'json',
-
-            'filters[State]':
-              officialStateName,
-
-            limit: 1000,
-
-            offset: 0,
-          },
-
-          headers: {
-            Accept:
-              'application/json',
-          },
-
-          timeout: 30000,
-        },
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Extract Records
-    |--------------------------------------------------------------------------
-    */
-
-    const records =
-      response.data?.records || [];
-
-    /*
-    |--------------------------------------------------------------------------
-    | Extract Unique Districts
-    |--------------------------------------------------------------------------
-    */
-
-    const districts = [
-      ...new Set(
-        records
-          .map(record =>
-            String(
-              record.District || '',
-            ).trim(),
-          )
-          .filter(Boolean),
-      ),
-    ].sort((a, b) =>
-      a.localeCompare(b),
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Response
-    |--------------------------------------------------------------------------
-    */
 
     return res.status(200).json({
       success: true,
-
-      state:
-        officialStateName,
-
-      count:
-        districts.length,
-
-      data:
-        districts,
+      state: selectedState.name,
+      count: districts.length,
+      stale,
+      data: districts,
     });
   } catch (error) {
-    console.error(
-      'Get mandi districts error:',
-      error.response?.data ||
-        error.message,
-    );
-
-    return res.status(
-      error.response?.status || 500,
-    ).json({
-      success: false,
-
-      message:
-        error.response?.data?.message ||
-        'Failed to fetch mandi districts',
-
-      error:
-        process.env.NODE_ENV ===
-        'development'
-          ? error.message
-          : undefined,
-    });
+    return sendError(res, error, 'Failed to fetch mandi districts');
   }
 };
 
@@ -368,451 +204,152 @@ export const getMandiDistricts = async (
 |--------------------------------------------------------------------------
 | GET MANDI RATES
 |--------------------------------------------------------------------------
+| GET /api/mandi/rates?crop=onion
 |
 | Required:
-|
-| state
-| district
-| crop
+|   crop         id, name, official name or alias (see /crops); any other
+|                name is searched as typed
 |
 | Optional:
+|   state        name, id or alias ("Kerala" also finds "Keralam")
+|   district
+|   market       part of the market name
+|   variety      part of the variety name
+|   arrivalDate  YYYY-MM-DD or DD/MM/YYYY - prices on that date
+|   sort         location (default) | price_desc | price_asc | market | newest
+|   page, limit  default 1 / 50, limit max 200
 |
-| arrivalDate
-| limit
+| Without arrivalDate, today's prices are returned. If the crop has no
+| prices today for the chosen location, the most recent price of each
+| market (last 30 days) is returned instead, with source
+| "historical_latest".
 |
+| Prices are rupees per quintal.
+|--------------------------------------------------------------------------
 */
 
-export const getMandiRates = async (
-  req,
-  res,
-) => {
+export const getMandiRates = async (req, res) => {
   try {
-    const {
-      state,
-      district,
-      crop,
-      arrivalDate,
-      limit = 50,
-    } = req.query;
+    const { crop, state, district, market, variety, arrivalDate, sort } = req.query;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate State
-    |--------------------------------------------------------------------------
-    */
-
-    if (!state) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          'State is required',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate District
-    |--------------------------------------------------------------------------
-    */
-
-    if (!district) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          'District is required',
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Crop
-    |--------------------------------------------------------------------------
-    */
+    /* CROP */
 
     if (!crop) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          'Crop is required',
-      });
+      return res.status(400).json({ success: false, message: 'Crop is required' });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find Manually Maintained Crop
-    |--------------------------------------------------------------------------
-    */
-
-    const selectedCrop =
-      MANDI_CROPS.find(
-        item =>
-          normalize(item.id) ===
-            normalize(crop) ||
-
-          normalize(item.name) ===
-            normalize(crop) ||
-
-          normalize(
-            item.commodity,
-          ) === normalize(crop),
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Invalid Crop
-    |--------------------------------------------------------------------------
-    */
+    const selectedCrop = resolveCrop(crop);
 
     if (!selectedCrop) {
       return res.status(400).json({
         success: false,
-
-        message:
-          'Invalid crop selected',
-
-        availableCrops:
-          MANDI_CROPS.map(
-            item => item.name,
-          ),
+        message: 'Invalid crop selected',
+        availableCrops: MANDI_CROPS.map((item) => item.name),
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Limit
-    |--------------------------------------------------------------------------
-    */
+    /* STATE */
 
-    const parsedLimit =
-      Number(limit);
+    let selectedState = null;
 
-    if (
-      !Number.isInteger(
-        parsedLimit,
-      ) ||
-      parsedLimit < 1 ||
-      parsedLimit > 100
-    ) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          'Limit must be between 1 and 100',
-      });
+    if (state) {
+      selectedState = resolveState(state);
+      if (!selectedState) return invalidState(res);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Government API Filters
-    |--------------------------------------------------------------------------
-    |
-    | IMPORTANT:
-    |
-    | State
-    | District
-    | Commodity
-    |
-    | Taluka and Village are intentionally
-    | NOT sent because the selected government
-    | resource does not expose those fields.
-    |
-    */
+    /* DATE */
 
-    const filters = {
-      'filters[State]':
-        state,
-
-      'filters[District]':
-        district,
-
-      'filters[Commodity]':
-        selectedCrop.commodity,
-    };
-
-    /*
-    |--------------------------------------------------------------------------
-    | Optional Arrival Date
-    |--------------------------------------------------------------------------
-    */
+    let govDate = null;
 
     if (arrivalDate) {
-      filters[
-        'filters[Arrival_Date]'
-      ] = arrivalDate;
+      govDate = toGovDate(arrivalDate);
+
+      if (!govDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Arrival date must be YYYY-MM-DD or DD/MM/YYYY',
+        });
+      }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Logging
-    |--------------------------------------------------------------------------
-    */
+    /* PAGING */
 
-    console.log(
-      'Fetching mandi rates:',
-      {
-        state,
-        district,
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
 
-        commodity:
-          selectedCrop.commodity,
+    /* FETCH + FILTER */
 
-        arrivalDate:
-          arrivalDate || null,
-      },
-    );
+    const districtKey = matchKey(district);
+    const marketKey = matchKey(market);
+    const varietyKey = matchKey(variety);
 
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 1
-    | Get Total Matching Records
-    |--------------------------------------------------------------------------
-    */
-
-    const countResponse =
-      await axios.get(
-        MANDI_API_URL,
-        {
-          params: {
-            'api-key':
-              process.env
-                .DATA_GOV_MANDI_API_KEY,
-
-            format: 'json',
-
-            limit: 1,
-
-            offset: 0,
-
-            ...filters,
-          },
-
-          headers: {
-            Accept:
-              'application/json',
-          },
-
-          timeout: 30000,
-        },
+    const applyFilters = (records) =>
+      records.filter(
+        (record) =>
+          (!selectedState || selectedState.keys.has(matchKey(record.state))) &&
+          (!districtKey || matchKey(record.district) === districtKey) &&
+          (!marketKey || matchKey(record.market).includes(marketKey)) &&
+          (!varietyKey || matchKey(record.variety).includes(varietyKey))
       );
 
-    /*
-    |--------------------------------------------------------------------------
-    | Total Records
-    |--------------------------------------------------------------------------
-    */
+    let source;
+    let result;
+    let records;
 
-    const totalRecords =
-      Number(
-        countResponse.data?.total,
-      ) || 0;
+    if (govDate) {
+      source = 'historical';
+      result = await getPricesOnDate(selectedCrop, govDate, selectedState);
+      records = applyFilters(result.records);
+    } else {
+      source = 'daily';
+      result = await getDailyPrices(selectedCrop);
+      records = applyFilters(result.records);
 
-    /*
-    |--------------------------------------------------------------------------
-    | No Records
-    |--------------------------------------------------------------------------
-    */
-
-    if (totalRecords === 0) {
-      return res.status(200).json({
-        success: true,
-
-        filters: {
-          state,
-
-          district,
-
-          crop:
-            selectedCrop.name,
-
-          commodity:
-            selectedCrop.commodity,
-
-          arrivalDate:
-            arrivalDate || null,
-        },
-
-        count: 0,
-
-        total: 0,
-
-        data: [],
-      });
+      if (records.length === 0) {
+        source = 'historical_latest';
+        result = await getLatestHistoricalPrices(selectedCrop, selectedState);
+        records = applyFilters(result.records);
+      }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 2
-    | Calculate Latest Offset
-    |--------------------------------------------------------------------------
-    |
-    | The government dataset isn't ordered
-    | newest-first.
-    |
-    | Therefore we jump near the end.
-    |
-    */
+    records.sort(SORTS[sort] || SORTS.location);
 
-    const latestOffset =
-      Math.max(
-        totalRecords -
-          parsedLimit,
-
-        0,
-      );
-
-    console.log(
-      'Mandi pagination:',
-      {
-        totalRecords,
-
-        latestOffset,
-
-        limit:
-          parsedLimit,
-      },
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 3
-    | Fetch Latest Records
-    |--------------------------------------------------------------------------
-    */
-
-    const latestResponse =
-      await axios.get(
-        MANDI_API_URL,
-        {
-          params: {
-            'api-key':
-              process.env
-                .DATA_GOV_MANDI_API_KEY,
-
-            format: 'json',
-
-            limit:
-              parsedLimit,
-
-            offset:
-              latestOffset,
-
-            ...filters,
-          },
-
-          headers: {
-            Accept:
-              'application/json',
-          },
-
-          timeout: 30000,
-        },
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Extract Records
-    |--------------------------------------------------------------------------
-    */
-
-    const records =
-      latestResponse.data?.records ||
-      [];
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 4
-    | Sort Newest → Oldest
-    |--------------------------------------------------------------------------
-    */
-
-    const sortedRecords =
-      [...records].sort(
-        (a, b) =>
-          parseIndianDate(
-            b.Arrival_Date,
-          ) -
-          parseIndianDate(
-            a.Arrival_Date,
-          ),
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 5
-    | Format Records
-    |--------------------------------------------------------------------------
-    */
-
-    const formattedRecords =
-      sortedRecords.map(
-        formatRecord,
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | FINAL RESPONSE
-    |--------------------------------------------------------------------------
-    */
+    const total = records.length;
+    const data = records.slice((page - 1) * limit, page * limit);
 
     return res.status(200).json({
       success: true,
 
       filters: {
-        state,
-
-        district,
-
-        crop:
-          selectedCrop.name,
-
-        commodity:
-          selectedCrop.commodity,
-
-        arrivalDate:
-          arrivalDate || null,
+        crop: selectedCrop.name,
+        cropId: selectedCrop.id,
+        commodity: selectedCrop.commodity,
+        commodities: selectedCrop.commodities,
+        state: selectedState?.name || null,
+        district: district || null,
+        market: market || null,
+        variety: variety || null,
+        arrivalDate: govDate,
+        sort: SORTS[sort] ? sort : 'location',
       },
 
-      count:
-        formattedRecords.length,
+      // daily | historical_latest | historical
+      source,
+      fetchedAt: result.fetchedAt,
+      // true when data.gov.in failed and an older cached copy is shown
+      stale: result.stale,
+      // true when data.gov.in had more rows than were fetched
+      truncated: result.truncated,
 
-      total:
-        totalRecords,
+      summary: summarize(records),
 
-      data:
-        formattedRecords,
+      count: data.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      data,
     });
   } catch (error) {
-    /*
-    |--------------------------------------------------------------------------
-    | ERROR HANDLING
-    |--------------------------------------------------------------------------
-    */
-
-    console.error(
-      'Mandi API error:',
-      error.response?.data ||
-        error.message,
-    );
-
-    return res.status(
-      error.response?.status ||
-        500,
-    ).json({
-      success: false,
-
-      message:
-        error.response?.data
-          ?.message ||
-        'Failed to fetch mandi rates',
-
-      error:
-        process.env.NODE_ENV ===
-        'development'
-          ? error.message
-          : undefined,
-    });
+    return sendError(res, error, 'Failed to fetch mandi rates');
   }
 };
