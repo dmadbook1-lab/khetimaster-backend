@@ -1,5 +1,31 @@
 import mongoose from 'mongoose';
 
+/*
+|--------------------------------------------------------------------------
+| DOCTOR CONSULTATION
+|--------------------------------------------------------------------------
+|
+| A farmer asks a veterinarian or agricultural doctor for a consultation.
+|
+| Flow:
+|
+|   pending   -> farmer sent the request, waiting for the doctor
+|   accepted  -> doctor accepted ('confirmed' is kept for old data and
+|                treated the same as accepted)
+|   completed -> consultation done; doctor records diagnosis and
+|                prescription
+|   rejected  -> doctor declined
+|   cancelled -> farmer or doctor cancelled, or the request expired
+|                (cancelledBy: 'system')
+|
+| The doctor is blocked between startMinute and endMinute on
+| consultationDate. Two accepted consultations never overlap.
+|
+| consultationDate is stored as UTC midnight of the Indian calendar date
+| so the same day always compares equal.
+|
+*/
+
 const doctorConsultationSchema = new mongoose.Schema(
   {
     farmer: {
@@ -16,23 +42,27 @@ const doctorConsultationSchema = new mongoose.Schema(
       index: true,
     },
 
-    consultationDate: {
-      type: Date,
-      required: true,
-      index: true,
-    },
+    /*
+    |--------------------------------------------------------------------------
+    | SCHEDULE
+    |--------------------------------------------------------------------------
+    */
 
-    startTime: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+    consultationDate: { type: Date, required: true, index: true },
 
-    endTime: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    startTime: { type: String, required: true, trim: true },
+
+    endTime: { type: String, default: '', trim: true },
+
+    startMinute: { type: Number, min: 0, max: 1440, default: null },
+
+    endMinute: { type: Number, min: 0, max: 1440, default: null },
+
+    /*
+    |--------------------------------------------------------------------------
+    | PROBLEM
+    |--------------------------------------------------------------------------
+    */
 
     consultationType: {
       type: String,
@@ -40,77 +70,46 @@ const doctorConsultationSchema = new mongoose.Schema(
       required: true,
     },
 
-    problemType: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    problemType: { type: String, default: '', trim: true },
 
-    animalType: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    animalType: { type: String, default: '', trim: true },
 
-    animalCount: {
-      type: Number,
-      min: 0,
-      default: 0,
-    },
+    animalCount: { type: Number, min: 0, default: 0 },
 
-    animalAge: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    animalAge: { type: String, default: '', trim: true },
 
-    symptoms: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    cropName: { type: String, default: '', trim: true },
 
-    description: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    symptoms: { type: String, default: '', trim: true, maxlength: 2000 },
 
-    state: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    description: { type: String, default: '', trim: true, maxlength: 2000 },
 
-    district: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    // Photos of the sick animal / affected crop (URLs)
+    images: { type: [String], default: [] },
 
-    village: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    /*
+    |--------------------------------------------------------------------------
+    | LOCATION (the farmer's place)
+    |--------------------------------------------------------------------------
+    */
 
-    address: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    state: { type: String, default: '', trim: true },
 
-    consultationFee: {
-      type: Number,
-      min: 0,
-      default: 0,
-    },
+    district: { type: String, default: '', trim: true },
 
-    totalAmount: {
-      type: Number,
-      min: 0,
-      default: 0,
-    },
+    village: { type: String, default: '', trim: true },
+
+    address: { type: String, default: '', trim: true },
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT (calculated by the server from the doctor's fee)
+    |--------------------------------------------------------------------------
+    */
+
+    consultationFee: { type: Number, min: 0, default: 0 },
+
+    totalAmount: { type: Number, min: 0, default: 0 },
 
     paymentMethod: {
       type: String,
@@ -118,48 +117,59 @@ const doctorConsultationSchema = new mongoose.Schema(
       default: 'cod',
     },
 
-    farmerNotes: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    /*
+    |--------------------------------------------------------------------------
+    | NOTES / OUTCOME
+    |--------------------------------------------------------------------------
+    */
 
-    doctorNotes: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    farmerNotes: { type: String, default: '', trim: true, maxlength: 1000 },
 
-    diagnosis: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    doctorNotes: { type: String, default: '', trim: true, maxlength: 2000 },
 
-    prescription: {
-      type: String,
-      default: '',
-      trim: true,
-    },
+    diagnosis: { type: String, default: '', trim: true, maxlength: 2000 },
+
+    prescription: { type: String, default: '', trim: true, maxlength: 2000 },
+
+    followUpDate: { type: Date, default: null },
+
+    /*
+    |--------------------------------------------------------------------------
+    | STATUS
+    |--------------------------------------------------------------------------
+    */
 
     status: {
       type: String,
-      enum: [
-        'pending',
-        'confirmed',
-        'accepted',
-        'rejected',
-        'cancelled',
-        'completed',
-      ],
+      enum: ['pending', 'confirmed', 'accepted', 'rejected', 'cancelled', 'completed'],
       default: 'pending',
       index: true,
     },
 
-    cancellationReason: {
+    rejectionReason: { type: String, default: '', trim: true, maxlength: 500 },
+
+    cancellationReason: { type: String, default: '', trim: true, maxlength: 500 },
+
+    cancelledBy: {
       type: String,
-      default: '',
-      trim: true,
+      enum: ['farmer', 'doctor', 'system', null],
+      default: null,
+    },
+
+    acceptedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+    cancelledAt: { type: Date, default: null },
+
+    /*
+    |--------------------------------------------------------------------------
+    | FARMER REVIEW OF DOCTOR
+    |--------------------------------------------------------------------------
+    */
+
+    review: {
+      rating: { type: Number, min: 1, max: 5, default: null },
+      comment: { type: String, default: '', trim: true, maxlength: 500 },
+      createdAt: { type: Date, default: null },
     },
   },
   {
@@ -167,24 +177,14 @@ const doctorConsultationSchema = new mongoose.Schema(
   }
 );
 
-doctorConsultationSchema.index({
-  farmer: 1,
-  createdAt: -1,
-});
+doctorConsultationSchema.index({ farmer: 1, createdAt: -1 });
 
-doctorConsultationSchema.index({
-  doctor: 1,
-  createdAt: -1,
-});
+doctorConsultationSchema.index({ doctor: 1, createdAt: -1 });
 
-doctorConsultationSchema.index({
-  consultationDate: 1,
-  status: 1,
-});
+doctorConsultationSchema.index({ consultationDate: 1, status: 1 });
 
-const DoctorConsultation = mongoose.model(
-  'DoctorConsultation',
-  doctorConsultationSchema
-);
+doctorConsultationSchema.index({ doctor: 1, status: 1, consultationDate: 1 });
+
+const DoctorConsultation = mongoose.model('DoctorConsultation', doctorConsultationSchema);
 
 export default DoctorConsultation;

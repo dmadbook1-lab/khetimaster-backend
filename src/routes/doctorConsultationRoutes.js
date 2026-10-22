@@ -9,6 +9,8 @@ import {
   rejectConsultation,
   cancelConsultation,
   completeConsultation,
+  updateConsultationNotes,
+  reviewConsultation,
 } from '../controllers/doctorConsultationController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -79,6 +81,24 @@ router.patch(
   '/:id/complete',
   authMiddleware,
   completeConsultation
+);
+
+/*
+ * Doctor adds / corrects diagnosis, prescription, notes
+ */
+router.patch(
+  '/:id/notes',
+  authMiddleware,
+  updateConsultationNotes
+);
+
+/*
+ * Farmer rates the doctor after completion
+ */
+router.post(
+  '/:id/review',
+  authMiddleware,
+  reviewConsultation
 );
 
 export default router;

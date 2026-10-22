@@ -8,6 +8,7 @@ import {
   updateMyDoctorProfile,
   deactivateMyDoctorProfile,
   activateMyDoctorProfile,
+  getDoctorMeta,
 } from '../controllers/doctorController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -30,6 +31,12 @@ router.get(
   '/',
   authMiddleware,
   getAllDoctors
+);
+
+router.get(
+  '/meta',
+  authMiddleware,
+  getDoctorMeta
 );
 
 router.get(

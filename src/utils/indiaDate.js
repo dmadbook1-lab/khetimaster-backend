@@ -42,3 +42,8 @@ export const toIndianDay = (value) => {
 export const todayInIndia = () => toIndianDay(new Date());
 
 export const addDays = (date, days) => new Date(date.getTime() + days * DAY_MS);
+
+/*
+ * Minutes since midnight right now, Indian time.
+ */
+export const nowMinutesInIndia = () => Math.floor(((Date.now() + IST_OFFSET_MS) % DAY_MS) / 60000);
