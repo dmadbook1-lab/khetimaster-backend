@@ -23,11 +23,13 @@ import nurseryRoutes from './routes/nurseryRoutes.js';
 import nurseryCartRoutes from './routes/nurseryCartRoutes.js';
 import nurseryOrderRoutes from './routes/nurseryOrderRoutes.js';
 import farmFieldRoutes from './routes/farmField.routes.js';
+import advisoryRoutes from './routes/advisory.routes.js';
 
 import marketRoutes from './routes/marketRoutes.js';
 import marketDealRoutes from './routes/marketDealRoutes.js';
 
 import { startArticleRefreshJob } from './jobs/articleRefreshJob.js';
+import { startAdvisoryRefreshJob } from './jobs/advisoryRefreshJob.js';
 
 import { refreshArticles } from './services/articleService.js';
 
@@ -87,6 +89,11 @@ app.use('/api/nursery/orders', nurseryOrderRoutes);
 app.use('/api/field', farmFieldRoutes);
 
 /*
+ * Smart farm advisory (growth stage, NPK, crop health, activities)
+ */
+app.use('/api/advisory', advisoryRoutes);
+
+/*
  * Marketplace (buy / sell produce and equipment)
  */
 app.use('/api/market/deals', marketDealRoutes);
@@ -129,6 +136,11 @@ app.listen(PORT, '0.0.0.0', () => {
    * (30 minutes by default).
    */
   startArticleRefreshJob();
+
+  /*
+   * Daily smart-advisory refresh for every farm.
+   */
+  startAdvisoryRefreshJob();
 
   /*
    * Initial article refresh.

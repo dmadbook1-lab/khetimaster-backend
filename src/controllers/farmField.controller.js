@@ -2,6 +2,11 @@ import mongoose from 'mongoose';
 
 import FarmField from '../models/farmField.model.js';
 import User from '../models/User.js';
+import {
+  deleteAdvisoriesForField,
+  generateAdvisoryInBackground,
+  touchesAdvisoryInputs,
+} from '../advisory/services/advisory.service.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -367,6 +372,16 @@ export const addField = async (
     console.log(
       'Saved crop image:',
       savedFarmField.cropImage,
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | FIRST ADVISORY
+    |--------------------------------------------------------------------------
+    */
+
+    generateAdvisoryInBackground(
+      savedFarmField._id,
     );
 
     /*
@@ -879,6 +894,22 @@ export const updateField =
         updatedFarm.cropImage,
       );
 
+      /*
+      |--------------------------------------------------------------------------
+      | REFRESH ADVISORY WHEN CROP / BOUNDARY CHANGED
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        touchesAdvisoryInputs(
+          req.body,
+        )
+      ) {
+        generateAdvisoryInBackground(
+          updatedFarm._id,
+        );
+      }
+
       return res.status(200).json({
         success: true,
 
@@ -959,6 +990,10 @@ export const deleteField =
             'Farm field not found',
         });
       }
+
+      await deleteAdvisoriesForField(
+        fieldId,
+      );
 
       return res.status(200).json({
         success: true,
