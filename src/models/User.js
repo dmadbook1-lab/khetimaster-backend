@@ -46,9 +46,30 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Community profile
+    avatar: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    bio: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 150,
+    },
+
     profileCompleted: {
       type: Boolean,
       default: false,
+    },
+
+    // 'admin' unlocks the admin panel APIs (e.g. AI Guru chat history)
+    role: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
     },
   },
   {

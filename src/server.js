@@ -28,6 +28,10 @@ import advisoryRoutes from './routes/advisory.routes.js';
 import marketRoutes from './routes/marketRoutes.js';
 import marketDealRoutes from './routes/marketDealRoutes.js';
 
+import communityRoutes from './routes/communityRoutes.js';
+
+import { aiGuruRouter, adminAiGuruRouter } from './routes/aiGuruRoutes.js';
+
 import { startArticleRefreshJob } from './jobs/articleRefreshJob.js';
 import { startAdvisoryRefreshJob } from './jobs/advisoryRefreshJob.js';
 
@@ -39,6 +43,9 @@ const app = express();
  * Middleware
  */
 app.use(cors());
+
+// AI Guru accepts crop photos, so it gets a larger body limit than the rest
+app.use('/api/ai-guru', express.json({ limit: '6mb' }));
 
 app.use(express.json());
 
@@ -99,6 +106,18 @@ app.use('/api/advisory', advisoryRoutes);
 app.use('/api/market/deals', marketDealRoutes);
 
 app.use('/api/market', marketRoutes);
+
+/*
+ * Community (feed posts, reels, comments, follows, profiles)
+ */
+app.use('/api/community', communityRoutes);
+
+/*
+ * AI Guru assistant (chat + history) and its admin-panel APIs
+ */
+app.use('/api/ai-guru', aiGuruRouter);
+
+app.use('/api/admin/ai-guru', adminAiGuruRouter);
 
 /*
  * Health Check

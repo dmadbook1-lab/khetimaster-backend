@@ -194,6 +194,8 @@ export const verifyOtp = async (req, res) => {
           district: user.district,
           taluka: user.taluka,
           village: user.village,
+          avatar: user.avatar || '',
+          bio: user.bio || '',
           profileCompleted: user.profileCompleted,
         },
 
@@ -322,6 +324,8 @@ export const completeProfile = async (req, res) => {
         district: user.district,
         taluka: user.taluka,
         village: user.village,
+        avatar: user.avatar || '',
+        bio: user.bio || '',
         profileCompleted: user.profileCompleted,
       },
 
@@ -475,6 +479,8 @@ export const updateProfile = async (req, res) => {
         district: user.district,
         taluka: user.taluka,
         village: user.village,
+        avatar: user.avatar || '',
+        bio: user.bio || '',
         profileCompleted: user.profileCompleted,
       },
     });
@@ -611,6 +617,8 @@ export const getMe = async (req, res) => {
         district: user.district,
         taluka: user.taluka,
         village: user.village,
+        avatar: user.avatar || '',
+        bio: user.bio || '',
         profileCompleted: user.profileCompleted,
       },
     });
