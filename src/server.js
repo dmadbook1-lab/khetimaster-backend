@@ -32,6 +32,8 @@ import communityRoutes from './routes/communityRoutes.js';
 
 import { aiGuruRouter, adminAiGuruRouter } from './routes/aiGuruRoutes.js';
 
+import adminRoutes from './routes/adminRoutes.js';
+
 import { startArticleRefreshJob } from './jobs/articleRefreshJob.js';
 import { startAdvisoryRefreshJob } from './jobs/advisoryRefreshJob.js';
 
@@ -118,6 +120,11 @@ app.use('/api/community', communityRoutes);
 app.use('/api/ai-guru', aiGuruRouter);
 
 app.use('/api/admin/ai-guru', adminAiGuruRouter);
+
+/*
+ * Admin panel (users, farms, bookings, marketplace, community, ...)
+ */
+app.use('/api/admin', adminRoutes);
 
 /*
  * Health Check

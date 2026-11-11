@@ -620,6 +620,7 @@ export const getMe = async (req, res) => {
         avatar: user.avatar || '',
         bio: user.bio || '',
         profileCompleted: user.profileCompleted,
+        role: user.role,
       },
     });
   } catch (error) {
