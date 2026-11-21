@@ -13,6 +13,8 @@ import labourBookingRoutes from './routes/labourBookingRoutes.js';
 import machineryRoutes from './routes/machineryRoutes.js';
 import machineryBookingRoutes from './routes/machineryBookingRoutes.js';
 
+import deliveryRoutes from './routes/deliveryRoutes.js';
+
 import doctorRoutes from './routes/doctorRoutes.js';
 import doctorConsultationRoutes from './routes/doctorConsultationRoutes.js';
 
@@ -74,6 +76,11 @@ app.use('/api/labour-bookings', labourBookingRoutes);
 app.use('/api/machinery', machineryRoutes);
 
 app.use('/api/machinery-bookings', machineryBookingRoutes);
+
+/*
+ * Delivery (drivers + shipments)
+ */
+app.use('/api/delivery', deliveryRoutes);
 
 /*
  * Doctors
