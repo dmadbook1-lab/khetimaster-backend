@@ -12,6 +12,11 @@ import {
   updateResource,
   deleteResource,
   refreshArticlesNow,
+  refreshSoilTest,
+  syncSoilTests,
+  getSoilTestSummary,
+  getSchemeSummary,
+  translateSchemesNow,
 } from '../controllers/adminController.js';
 
 import authMiddleware from '../middleware/authMiddleware.js';
@@ -31,6 +36,13 @@ import { requireAdmin } from '../middleware/roleMiddleware.js';
 | DELETE /api/admin/users/:id                    account + owned content
 |
 | POST   /api/admin/articles/refresh
+|
+| GET    /api/admin/soil-tests/summary
+| POST   /api/admin/soil-tests/sync               check every booked test for a report
+| POST   /api/admin/soil-tests/:id/refresh        check one test now
+|
+| GET    /api/admin/schemes/summary
+| POST   /api/admin/schemes/translate?force=1     (re)translate to Hindi / Marathi
 |
 | GET    /api/admin/:resource?page&limit&search&from&to&sort&<filters>
 | GET    /api/admin/:resource/:id
@@ -59,6 +71,16 @@ router.patch('/users/:id', updateUser);
 router.delete('/users/:id', deleteUser);
 
 router.post('/articles/refresh', refreshArticlesNow);
+
+router.get('/soil-tests/summary', getSoilTestSummary);
+
+router.post('/soil-tests/sync', syncSoilTests);
+
+router.post('/soil-tests/:id/refresh', refreshSoilTest);
+
+router.get('/schemes/summary', getSchemeSummary);
+
+router.post('/schemes/translate', translateSchemesNow);
 
 router.get('/:resource', listResource);
 

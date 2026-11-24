@@ -22,6 +22,8 @@ import CommunityComment from '../models/CommunityComment.js';
 import CommunityReaction from '../models/CommunityReaction.js';
 import CommunityFollow from '../models/CommunityFollow.js';
 import ArticleCache from '../models/ArticleCache.js';
+import Scheme from '../models/Scheme.js';
+import SoilTest from '../models/SoilTest.js';
 import AiChatSession from '../models/AiChatSession.js';
 import AiChatMessage from '../models/AiChatMessage.js';
 
@@ -617,6 +619,7 @@ export async function deleteUser(id, adminId) {
     CommunityFollow.deleteMany({ $or: [{ follower: userId }, { following: userId }] }),
     AiChatMessage.deleteMany({ session: { $in: sessionIds } }),
     AiChatSession.deleteMany({ user: userId }),
+    SoilTest.deleteMany({ user: userId }),
     RefreshToken.deleteMany({ userId }),
     Otp.deleteMany({ email: user.email }),
   ]);
@@ -689,6 +692,9 @@ export async function getDashboard() {
     activeListings,
     posts,
     articles,
+    schemes,
+    soilTests,
+    soilTestStatus,
     aiSessions,
     aiMessages,
     labourStatus,
@@ -728,6 +734,9 @@ export async function getDashboard() {
     MarketListing.countDocuments({ status: 'ACTIVE' }),
     CommunityPost.countDocuments(),
     ArticleCache.countDocuments(),
+    Scheme.countDocuments({ isActive: true }),
+    SoilTest.countDocuments(),
+    countBy(SoilTest, 'status'),
     AiChatSession.countDocuments(),
     AiChatMessage.countDocuments({ role: 'user' }),
     countBy(LabourBooking, 'status'),
@@ -799,6 +808,8 @@ export async function getDashboard() {
       activeListings,
       posts,
       articles,
+      schemes,
+      soilTests,
       aiSessions,
       aiQuestions: aiMessages,
     },
@@ -808,6 +819,7 @@ export async function getDashboard() {
       doctorConsultations: toCounts(doctorStatus),
       nurseryOrders: toCounts(nurseryStatus),
       marketDeals: toCounts(dealStatus),
+      soilTests: toCounts(soilTestStatus),
     },
     gmv: {
       labour: gmvLabour,
@@ -850,6 +862,9 @@ const OPTION_SOURCES = {
   'doctors.state': [Doctor, 'state'],
   'plants.category': [Plant, 'category'],
   'articles.category': [ArticleCache, 'category'],
+  'schemes.category': [Scheme, 'category'],
+  'schemes.level': [Scheme, 'level'],
+  'soil-tests.state': [SoilTest, 'state'],
 };
 
 export async function getOptions(key) {

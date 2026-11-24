@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "make-admin": "node src/scripts/makeAdmin.js"
+    "make-admin": "node src/scripts/makeAdmin.js",
+    "seed-schemes": "node src/scripts/seedSchemes.js",
+    "translate-schemes": "node src/scripts/translateSchemes.js"
   },
   "keywords": [],
   "author": "",

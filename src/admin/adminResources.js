@@ -14,6 +14,8 @@ import CommunityPost from '../models/CommunityPost.js';
 import CommunityComment from '../models/CommunityComment.js';
 import CommunityReaction from '../models/CommunityReaction.js';
 import ArticleCache from '../models/ArticleCache.js';
+import Scheme from '../models/Scheme.js';
+import SoilTest from '../models/SoilTest.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -291,6 +293,36 @@ export const RESOURCES = {
     filters: ['source', 'category'],
     sortable: ['publishedAt', 'cachedAt', 'title'],
     defaultSort: { publishedAt: -1 },
+    editable: [],
+  },
+
+  schemes: {
+    model: Scheme,
+    label: 'Scheme',
+    search: ['name', 'slug', 'category', 'desc'],
+    filters: ['category', 'level', 'isActive', 'popular'],
+    booleans: ['isActive', 'popular'],
+    sortable: ['order', 'name', 'updatedAt'],
+    defaultSort: { order: 1 },
+    editable: [
+      'name', 'category', 'level', 'icon', 'color', 'popular', 'isNew', 'desc',
+      'benefits', 'eligibility', 'exclusions', 'documents', 'steps',
+      'officialUrl', 'applyUrl', 'helpline', 'rules', 'translations', 'order', 'isActive',
+    ],
+  },
+
+  'soil-tests': {
+    model: SoilTest,
+    label: 'Soil test',
+    populate: [
+      { path: 'user', select: USER_FIELDS },
+      { path: 'farmField', select: 'fieldName cropName acre' },
+    ],
+    search: ['sampleId', 'firstName', 'lastName', 'mobileNo', 'city', 'state', 'previousCrop', 'nextCrop'],
+    searchUsers: ['user'],
+    filters: ['status', 'state', 'farmSizeUnit', 'user'],
+    sortable: ['createdAt', 'reportFetchedAt', 'status', 'farmSize', 'sampleId'],
+    // Bookings and reports come from the partner lab, so they are read-only here
     editable: [],
   },
 };

@@ -20,6 +20,8 @@ import doctorConsultationRoutes from './routes/doctorConsultationRoutes.js';
 
 import articleRoutes from './routes/articleRoutes.js';
 import mandiRoutes from './routes/mandiRoutes.js';
+import schemeRoutes from './routes/schemeRoutes.js';
+import soilTestRoutes from './routes/soilTestRoutes.js';
 
 import nurseryRoutes from './routes/nurseryRoutes.js';
 import nurseryCartRoutes from './routes/nurseryCartRoutes.js';
@@ -38,6 +40,8 @@ import adminRoutes from './routes/adminRoutes.js';
 
 import { startArticleRefreshJob } from './jobs/articleRefreshJob.js';
 import { startAdvisoryRefreshJob } from './jobs/advisoryRefreshJob.js';
+import { startSchemeTranslationJob } from './jobs/schemeTranslationJob.js';
+import { startSoilTestJob } from './jobs/soilTestJob.js';
 
 import { refreshArticles } from './services/articleService.js';
 
@@ -95,6 +99,16 @@ app.use('/api/doctor-consultations', doctorConsultationRoutes);
 app.use('/api/articles', articleRoutes);
 
 app.use('/api/mandi', mandiRoutes);
+
+/*
+ * Government schemes catalogue
+ */
+app.use('/api/schemes', schemeRoutes);
+
+/*
+ * Soil testing (Ekosight partner API)
+ */
+app.use('/api/soil-tests', soilTestRoutes);
 
 app.use('/api/nursery', nurseryRoutes);
 
@@ -174,6 +188,8 @@ app.listen(PORT, '0.0.0.0', () => {
    * Daily smart-advisory refresh for every farm.
    */
   startAdvisoryRefreshJob();
+  startSchemeTranslationJob();
+  startSoilTestJob();
 
   /*
    * Initial article refresh.
