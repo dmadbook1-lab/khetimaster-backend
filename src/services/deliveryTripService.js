@@ -1,10 +1,7 @@
 import mongoose from 'mongoose';
 
 import DeliveryBooking from '../models/DeliveryBooking.js';
-import {
-  NOW_REQUEST_TIMEOUT_MINUTES,
-  REACH_PICKUP_MINUTES,
-} from '../data/deliveryOptions.js';
+import { NOW_REQUEST_TIMEOUT_MINUTES, REACH_PICKUP_MINUTES } from '../data/deliveryOptions.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -29,8 +26,7 @@ export const ACTIVE_STATUSES = ['requested', ...ON_TRIP_STATUSES];
  */
 const CURRENT_TRIP_LEAD_MS = (REACH_PICKUP_MINUTES + 15) * MINUTE_MS;
 
-export const minutesFromNow = (minutes, from = Date.now()) =>
-  new Date(from + minutes * MINUTE_MS);
+export const minutesFromNow = (minutes, from = Date.now()) => new Date(from + minutes * MINUTE_MS);
 
 /*
  * Requests that can no longer happen:
@@ -115,7 +111,9 @@ export const getPartnerTripInfo = async (partnerIds) => {
     partner: { $in: ids },
     status: { $in: ON_TRIP_STATUSES },
   })
-    .select('partner status goodsType pickup.village pickup.district drop.village drop.district pickupAt estimatedDeliveryAt')
+    .select(
+      'partner status goodsType pickup.village pickup.district drop.village drop.district pickupAt estimatedDeliveryAt'
+    )
     .sort({ pickupAt: 1 })
     .lean();
 
@@ -127,8 +125,7 @@ export const getPartnerTripInfo = async (partnerIds) => {
     const entry = info.get(String(trip.partner));
     if (!entry) continue;
 
-    const isCurrent =
-      trip.status !== 'accepted' || new Date(trip.pickupAt).getTime() <= leadCutoff;
+    const isCurrent = trip.status !== 'accepted' || new Date(trip.pickupAt).getTime() <= leadCutoff;
 
     if (isCurrent && !entry.currentTrip) {
       entry.currentTrip = {

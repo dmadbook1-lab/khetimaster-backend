@@ -145,10 +145,9 @@ const buildPartnerFields = (body, { isCreate }) => {
       return { error: 'Languages must be a list of text values' };
     }
 
-    fields.languages = [...new Set(body.languages.map((item) => item.trim()).filter(Boolean))].slice(
-      0,
-      10
-    );
+    fields.languages = [
+      ...new Set(body.languages.map((item) => item.trim()).filter(Boolean)),
+    ].slice(0, 10);
   }
 
   if (isCreate || has('vehicleType')) {
@@ -187,7 +186,11 @@ const buildPartnerFields = (body, { isCreate }) => {
   };
 
   const numberError =
-    numberField('capacityKg', 'Capacity (kg)', { min: 1, max: 50000, fallback: defaults.capacityKg }) ||
+    numberField('capacityKg', 'Capacity (kg)', {
+      min: 1,
+      max: 50000,
+      fallback: defaults.capacityKg,
+    }) ||
     numberField('baseFare', 'Base fare', { fallback: defaults.baseFare }) ||
     numberField('perKmRate', 'Rate per km', { max: 1000, fallback: defaults.perKmRate }) ||
     numberField('minFare', 'Minimum fare', { fallback: defaults.minFare });
@@ -267,8 +270,16 @@ export const getAllPartners = async (req, res) => {
     const userId = getUserId(req);
     await expireStaleDeliveryRequests();
 
-    const { search, vehicleType, minCapacity, onlineOnly, scope, sort, page = 1, limit = 20 } =
-      req.query;
+    const {
+      search,
+      vehicleType,
+      minCapacity,
+      onlineOnly,
+      scope,
+      sort,
+      page = 1,
+      limit = 20,
+    } = req.query;
 
     const district = await resolveCustomerDistrict(req);
     const origin = parsePoint({ lat: req.query.lat, lng: req.query.lng });
@@ -287,7 +298,13 @@ export const getAllPartners = async (req, res) => {
           count: 0,
           total: 0,
           stats: { total: 0, inDistrict: 0, onlineInDistrict: 0 },
-          pagination: { currentPage: 1, limit: 20, totalPages: 0, hasNextPage: false, hasPreviousPage: false },
+          pagination: {
+            currentPage: 1,
+            limit: 20,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
           partners: [],
         });
       }
@@ -568,7 +585,9 @@ export const getMyPartnerProfile = async (req, res) => {
     const partner = await DeliveryPartner.findOne({ user: userId }).lean();
 
     if (!partner) {
-      return res.status(404).json({ success: false, message: 'Delivery partner profile not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Delivery partner profile not found' });
     }
 
     await expireStaleDeliveryRequests();
@@ -636,7 +655,9 @@ export const updateMyPartnerProfile = async (req, res) => {
     const existing = await DeliveryPartner.findOne({ user: userId }).select('_id district');
 
     if (!existing) {
-      return res.status(404).json({ success: false, message: 'Delivery partner profile not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Delivery partner profile not found' });
     }
 
     const { fields, error } = buildPartnerFields(req.body, { isCreate: false });
@@ -773,7 +794,9 @@ export const updateMyLocation = async (req, res) => {
     ).select('location lastLocationAt');
 
     if (!partner) {
-      return res.status(404).json({ success: false, message: 'Delivery partner profile not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Delivery partner profile not found' });
     }
 
     return res.status(200).json({
@@ -807,7 +830,9 @@ export const deactivateMyPartnerProfile = async (req, res) => {
     const partner = await DeliveryPartner.findOne({ user: getUserId(req) }).select('_id');
 
     if (!partner) {
-      return res.status(404).json({ success: false, message: 'Delivery partner profile not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Delivery partner profile not found' });
     }
 
     const committed = await DeliveryBooking.exists({
@@ -865,7 +890,9 @@ export const activateMyPartnerProfile = async (req, res) => {
     );
 
     if (!partner) {
-      return res.status(404).json({ success: false, message: 'Delivery partner profile not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Delivery partner profile not found' });
     }
 
     return res.status(200).json({

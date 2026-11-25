@@ -216,7 +216,11 @@ const buildQuote = async (body, { partner, customerId }) => {
         status: 409,
         error: `${partner.fullName} is on another delivery right now. Schedule the pickup for after ${new Date(
           currentTrip.estimatedDeliveryAt
-        ).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}.`,
+        ).toLocaleTimeString('en-IN', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: 'Asia/Kolkata',
+        })}.`,
       };
     }
 
@@ -251,7 +255,9 @@ const buildQuote = async (body, { partner, customerId }) => {
     if (clash) {
       return {
         status: 409,
-        error: `${partner.fullName} is already booked from ${new Date(clash.pickupAt).toLocaleString('en-IN', {
+        error: `${partner.fullName} is already booked from ${new Date(
+          clash.pickupAt
+        ).toLocaleString('en-IN', {
           dateStyle: 'medium',
           timeStyle: 'short',
           timeZone: 'Asia/Kolkata',
@@ -329,7 +335,8 @@ const formatBooking = (booking, userId) => {
   const shareContact = CONTACT_STATUSES.includes(plain.status);
   const onTrip = ON_TRIP_STATUSES.includes(plain.status);
 
-  const partner = plain.partner && typeof plain.partner === 'object' ? { ...plain.partner } : plain.partner;
+  const partner =
+    plain.partner && typeof plain.partner === 'object' ? { ...plain.partner } : plain.partner;
   const customer =
     plain.customer && typeof plain.customer === 'object' ? { ...plain.customer } : plain.customer;
 
@@ -685,7 +692,9 @@ export const getPartnerRequests = async (req, res) => {
     const partner = await DeliveryPartner.findOne({ user: userId }).select('_id');
 
     if (!partner) {
-      return res.status(404).json({ success: false, message: 'Delivery partner profile not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Delivery partner profile not found' });
     }
 
     await expireStaleDeliveryRequests();
@@ -1101,7 +1110,9 @@ export const reviewDeliveryBooking = async (req, res) => {
     const { booking, role, userId } = loaded;
 
     if (role !== 'customer') {
-      return res.status(403).json({ success: false, message: 'Only the customer can rate the trip' });
+      return res
+        .status(403)
+        .json({ success: false, message: 'Only the customer can rate the trip' });
     }
 
     const rating = Number(req.body?.rating);
@@ -1145,4 +1156,3 @@ export const reviewDeliveryBooking = async (req, res) => {
     });
   }
 };
-
